@@ -102,7 +102,7 @@ function OrderDetail({
         <dl>
           <div><dt>Requester</dt><dd>{order.requesterName}</dd></div>
           <div><dt>Department</dt><dd>{order.departmentName}</dd></div>
-          <div><dt>Cost center</dt><dd>{order.costCenter || 'Not provided'}</dd></div>
+          <div><dt>Project name</dt><dd>{order.costCenter || 'Not provided'}</dd></div>
         </dl>
         <div className="order-detail__reason">
           <h3>Business reason</h3>

@@ -327,7 +327,7 @@ export function RequestPage() {
         </section>
 
         <section className="form-section" aria-labelledby="order-heading" >
-          <h2 id="order-heading"><span className="step-number" aria-hidden="true">2</span>What do you need?</h2>
+          <h2 id="order-heading"><span className="step-number" aria-hidden="true">2</span>What are you looking to buy?</h2>
           <div className="field-grid">
             <label className="field">
               <span>Store or company</span>
@@ -349,7 +349,7 @@ export function RequestPage() {
               <div className="line-item" key={item.id}>
                 <h3 className="line-item__title">Item {index + 1}</h3>
                 <label className="field line-item__description">
-                  <span>What is it?</span>
+                  <span>What is the item?</span>
                   <input
                     id={`field-items.${index}.description`}
                     value={item.description}
@@ -363,7 +363,7 @@ export function RequestPage() {
                   />
                 </label>
                 <label className="field line-item__quantity">
-                  <span>How many?</span>
+                  <span>How many do you need?</span>
                   <DecimalInput
                     id={`field-items.${index}.quantity`}
                     value={item.quantity}
@@ -405,9 +405,9 @@ export function RequestPage() {
         </section>
 
         <section className="form-section" aria-labelledby="reason-heading" >
-          <h2 id="reason-heading"><span className="step-number" aria-hidden="true">3</span>Why do you need it?</h2>
+          <h2 id="reason-heading"><span className="step-number" aria-hidden="true">3</span>What is the purpose of this request?</h2>
           <label className="field">
-            <span>Reason for this purchase</span>
+            <span>Please tell us the purpose</span>
             <small id="reason-help">One or two sentences is fine. For example: the old printer stopped working.</small>
             <textarea
               id="field-businessReason"
@@ -420,7 +420,7 @@ export function RequestPage() {
             <ErrorText id="reason-error" message={errors.businessReason} />
           </label>
           <details className="optional-details" open={optionalOpen} onToggle={(event) => setOptionalOpen(event.currentTarget.open)}>
-            <summary>Add a link or project code (optional)</summary>
+            <summary>Add a link or project name (optional)</summary>
             <div className="field-grid">
               <label className="field">
                 <span>Link to the item (optional)</span>
@@ -440,11 +440,11 @@ export function RequestPage() {
                 <ErrorText id="vendor-url-error" message={errors.vendorUrl} />
               </label>
               <label className="field">
-                <span>Project code (optional)</span>
-                <small id="cost-center-help">Leave this empty if you do not have one.</small>
+                <span>Project name (optional)</span>
+                <small id="cost-center-help">Leave this empty if this is not for a project.</small>
                 <input
                   id="field-costCenter"
-                  autoCapitalize="characters"
+                  autoCapitalize="words"
                   value={draft.costCenter}
                   onChange={(event) => updateField('costCenter', event.target.value)}
                   maxLength={50}

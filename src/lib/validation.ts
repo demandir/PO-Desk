@@ -21,8 +21,8 @@ const httpsUrl = z
 
 export const lineItemSchema = z.object({
   id: z.string().min(1),
-  description: z.string().trim().min(1, 'Enter what you need').max(500),
-  quantity: z.coerce.number().positive('Enter how many you need').max(10_000).refine(twoDecimals, precisionMessage),
+  description: z.string().trim().min(1, 'Please enter the item').max(500),
+  quantity: z.coerce.number().positive('Please enter how many you need').max(10_000).refine(twoDecimals, precisionMessage),
   unitPrice: z.coerce.number().positive('Enter the price for one').max(10_000_000).refine(twoDecimals, precisionMessage),
 })
 
@@ -36,7 +36,7 @@ export const purchaseOrderSchema = z
     businessReason: z
       .string()
       .trim()
-      .min(10, 'Please say a little more about why you need this')
+      .min(10, 'Please say a little more about the purpose of this request')
       .max(2_000),
     items: z.array(lineItemSchema).min(1).max(25),
     currency: z.literal('USD'),

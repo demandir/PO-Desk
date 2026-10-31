@@ -3,6 +3,13 @@ import { z } from 'zod'
 const twoDecimals = (value: number) => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001
 const precisionMessage = 'Use no more than two decimal places'
 
+// People paste links without a scheme, or with http://; both should still work.
+export const normalizeLink = (value: string) => {
+  const link = value.trim()
+  if (!link) return ''
+  return link.includes('://') ? link.replace(/^http:/i, 'https:') : `https://${link}`
+}
+
 const httpsUrl = z
   .string()
   .trim()
@@ -10,26 +17,26 @@ const httpsUrl = z
   .refine((value) => {
     if (!value) return true
     try { const url = new URL(value); return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password } catch { return false }
-  }, 'Use a valid https:// link')
+  }, 'Check this link. Copy it from your browser and paste it again.')
 
 export const lineItemSchema = z.object({
   id: z.string().min(1),
-  description: z.string().trim().min(1, 'Describe the item').max(500),
-  quantity: z.coerce.number().positive('Quantity must be greater than zero').max(10_000).refine(twoDecimals, precisionMessage),
-  unitPrice: z.coerce.number().min(0, 'Price cannot be negative').max(10_000_000).refine(twoDecimals, precisionMessage),
+  description: z.string().trim().min(1, 'Enter what you need').max(500),
+  quantity: z.coerce.number().positive('Enter how many you need').max(10_000).refine(twoDecimals, precisionMessage),
+  unitPrice: z.coerce.number().positive('Enter the price for one').max(10_000_000).refine(twoDecimals, precisionMessage),
 })
 
 export const purchaseOrderSchema = z
   .object({
     requesterName: z.string().trim().min(1, 'Enter your name').max(100),
-    departmentId: z.string().uuid('Choose a department'),
-    vendorName: z.string().trim().min(1, 'Enter the vendor').max(150),
+    departmentId: z.string().uuid('Choose your department'),
+    vendorName: z.string().trim().min(1, 'Enter the store or company').max(150),
     vendorUrl: httpsUrl,
     costCenter: z.string().trim().max(50),
     businessReason: z
       .string()
       .trim()
-      .min(10, 'Add a little more detail about why this order is needed')
+      .min(10, 'Please say a little more about why you need this')
       .max(2_000),
     items: z.array(lineItemSchema).min(1).max(25),
     currency: z.literal('USD'),

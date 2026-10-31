@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { purchaseOrderSchema } from './validation'
+import { normalizeLink, purchaseOrderSchema } from './validation'
 
 const validDraft = {
   requesterName: 'Alex Morgan',
@@ -30,6 +30,13 @@ describe('purchase-order validation', () => {
       expect(paths).toContain('vendorUrl')
       expect(paths).toContain('items.0.description')
     }
+  })
+
+  it('completes links people paste without https', () => {
+    expect(normalizeLink(' example.com/chair ')).toBe('https://example.com/chair')
+    expect(normalizeLink('http://example.com')).toBe('https://example.com')
+    expect(normalizeLink('https://example.com')).toBe('https://example.com')
+    expect(normalizeLink('  ')).toBe('')
   })
 
   it('rejects the honeypot and oversized totals', () => {

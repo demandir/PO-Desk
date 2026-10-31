@@ -4,7 +4,7 @@ import { calculateLineTotal, calculateTotals, formatMoney } from '../lib/calcula
 import { turnstileSiteKey } from '../lib/config'
 import { createSubmissionAttempt, readPendingSubmission, savePendingSubmission } from '../lib/submissionAttempt'
 import { SubmissionError } from '../lib/serviceErrors'
-import { flattenValidationErrors, purchaseOrderSchema } from '../lib/validation'
+import { flattenValidationErrors, normalizeLink, purchaseOrderSchema } from '../lib/validation'
 import { dataService } from '../services/dataService'
 import type { Department, LineItemInput, PurchaseOrderDraft, SubmissionReceipt } from '../types'
 
@@ -87,23 +87,13 @@ function SubmissionComplete({
       setCopied(true)
       setCopyError('')
       window.setTimeout(() => setCopied(false), 1600)
-    } catch { setCopyError('Select and copy the code above, or save this receipt.') }
+    } catch { setCopyError('Please write the code down or print this page.') }
   }
   return (
     <main id="main-content" className="receipt-page">
       <div className="receipt-copy">
         <h1 className="display-heading">Request received</h1>
-        <p>Save this code to check your request later.</p>
-        <div className="receipt-actions">
-          <a className="button button--primary" href="#/track">
-            Check status
-          </a>
-          <button className="button button--quiet" type="button" onClick={onAnother}>
-            New request
-          </button>
-          <button type="button" onClick={() => window.print()}>Print / save receipt</button>
-          {copyError && <p role="status">{copyError}</p>}
-        </div>
+        <p>Write down this code. You will need it to check on your request later.</p>
       </div>
       <article className="tracking-receipt" data-ui aria-label="Request code receipt">
         <div>
@@ -112,9 +102,19 @@ function SubmissionComplete({
           <button type="button" onClick={() => void copy()}>
             {copied ? 'Copied' : 'Copy code'}
           </button>
+          {copyError && <p role="status">{copyError}</p>}
         </div>
-        <p>Submitted {new Date(receipt.submittedAt).toLocaleString()}</p>
+        <p>Sent {new Date(receipt.submittedAt).toLocaleString()}</p>
       </article>
+      <div className="receipt-actions">
+        <a className="button button--primary" href="#/track">
+          Check status
+        </a>
+        <button className="button button--quiet" type="button" onClick={() => window.print()}>Print this page</button>
+        <button className="button button--quiet" type="button" onClick={onAnother}>
+          New request
+        </button>
+      </div>
     </main>
   )
 }
@@ -197,7 +197,7 @@ export function RequestPage() {
     event.preventDefault()
     if (isSubmitting) return
     setFormError('')
-    const validation = purchaseOrderSchema.safeParse(draft)
+    const validation = purchaseOrderSchema.safeParse({ ...draft, vendorUrl: normalizeLink(draft.vendorUrl) })
     if (!pendingAttempt.current && !validation.success) {
       const nextErrors = flattenValidationErrors(validation.error)
       setErrors(nextErrors)
@@ -263,19 +263,15 @@ export function RequestPage() {
   return (
     <main id="main-content">
       <section className="request-intro">
-        <div>
-          <h1>New purchase request</h1>
-        </div>
-        <div className="request-intro__copy">
-          <p>No account required. Every field is required unless marked optional. Prices are in USD.</p>
-          <small>Do not include payment, banking, government-ID, or health information.</small>
-        </div>
+        <h1>Request a purchase</h1>
+        <p>Fill in the three parts below, then press Send request. You do not need an account.</p>
+        <p>Please answer every question unless it says optional. Do not enter card numbers, bank details, ID numbers, or health information.</p>
       </section>
 
       <form className="po-form" id="request-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
         {(Object.keys(errors).length > 0 || formError) && (
           <div className="error-summary" ref={errorSummaryRef} tabIndex={-1} role="alert">
-            <strong>{retryPending ? 'Your submission has not been confirmed.' : 'Please review the request.'}</strong>
+            <strong>{retryPending ? 'We could not confirm your request was sent.' : 'Please fix these before sending:'}</strong>
             {formError && <p>{formError}</p>}
             {Object.values(errors).length > 0 && (
               <ul>
@@ -291,10 +287,10 @@ export function RequestPage() {
           </div>
         )}
 
-        {retryPending && <p className="retry-notice" role="status">Your details are saved for a safe retry. Use “Retry submission” below; it will not create a second request.</p>}
+        {retryPending && <p className="retry-notice" role="status">Your answers are saved. Press Try sending again below. This will not create a second request.</p>}
         <fieldset className="request-fields" disabled={isSubmitting || retryPending}>
-        <section className="form-section form-section--blue" aria-labelledby="requester-heading">
-          <h2 id="requester-heading">Your details</h2>
+        <section className="form-section" aria-labelledby="requester-heading">
+          <h2 id="requester-heading"><span className="step-number" aria-hidden="true">1</span>About you</h2>
           <div className="field-grid">
             <label className="field">
               <span>Your name</span>
@@ -310,7 +306,7 @@ export function RequestPage() {
               <ErrorText id="requester-name-error" message={errors.requesterName} />
             </label>
             <label className="field">
-              <span>Department</span>
+              <span>Your department</span>
               <select
                 id="field-departmentId"
                 value={draft.departmentId}
@@ -318,7 +314,7 @@ export function RequestPage() {
                 aria-invalid={Boolean(errors.departmentId)}
                 aria-describedby={errors.departmentId ? 'department-error' : undefined}
               >
-                <option value="">{departmentsLoading ? 'Loading departments…' : departments.length ? 'Choose a department' : 'No departments available'}</option>
+                <option value="">{departmentsLoading ? 'Loading departments…' : departments.length ? 'Choose your department' : 'No departments available'}</option>
                 {departments.map((department) => (
                   <option value={department.id} key={department.id}>
                     {department.name}
@@ -330,18 +326,19 @@ export function RequestPage() {
           </div>
         </section>
 
-        <section className="form-section form-section--porcelain" aria-labelledby="order-heading" >
-          <h2 id="order-heading">What are you ordering?</h2>
-          <div className="field-grid field-grid--vendor">
+        <section className="form-section" aria-labelledby="order-heading" >
+          <h2 id="order-heading"><span className="step-number" aria-hidden="true">2</span>What do you need?</h2>
+          <div className="field-grid">
             <label className="field">
-              <span>Vendor</span>
+              <span>Store or company</span>
+              <small id="vendor-help">Where will this be bought from?</small>
               <input
                 id="field-vendorName"
                 autoComplete="off"
                 value={draft.vendorName}
                 onChange={(event) => updateField('vendorName', event.target.value)}
                 aria-invalid={Boolean(errors.vendorName)}
-                aria-describedby={errors.vendorName ? 'vendor-error' : undefined}
+                aria-describedby={errors.vendorName ? 'vendor-help vendor-error' : 'vendor-help'}
               />
               <ErrorText id="vendor-error" message={errors.vendorName} />
             </label>
@@ -350,8 +347,9 @@ export function RequestPage() {
           <div className="line-items" aria-label="Items requested">
             {draft.items.map((item, index) => (
               <div className="line-item" key={item.id}>
+                <h3 className="line-item__title">Item {index + 1}</h3>
                 <label className="field line-item__description">
-                  <span>Item {index + 1} description</span>
+                  <span>What is it?</span>
                   <input
                     id={`field-items.${index}.description`}
                     value={item.description}
@@ -365,7 +363,7 @@ export function RequestPage() {
                   />
                 </label>
                 <label className="field line-item__quantity">
-                  <span>Quantity</span>
+                  <span>How many?</span>
                   <DecimalInput
                     id={`field-items.${index}.quantity`}
                     value={item.quantity}
@@ -376,12 +374,11 @@ export function RequestPage() {
                   <ErrorText id={`item-${index}-quantity-error`} message={errors[`items.${index}.quantity`]} />
                 </label>
                 <label className="field line-item__price">
-                  <span>Unit price</span>
+                  <span>Price for one</span>
                   <span className="money-input">
                     <span aria-hidden="true">$</span>
                     <DecimalInput
                       id={`field-items.${index}.unitPrice`}
-                      placeholder="0.00"
                       value={item.unitPrice}
                       onValueChange={(value) => updateItem(index, 'unitPrice', value)}
                       aria-invalid={Boolean(errors[`items.${index}.unitPrice`])}
@@ -391,18 +388,14 @@ export function RequestPage() {
                   <ErrorText id={`item-${index}-price-error`} message={errors[`items.${index}.unitPrice`]} />
                 </label>
                 <div className="line-item__total">
-                  <span>Line total</span>
+                  <span>Cost of this item</span>
                   <strong>{formatMoney(calculateLineTotal(item))}</strong>
                 </div>
-                <button
-                  className="line-item__remove"
-                  type="button"
-                  onClick={() => removeItem(index)}
-                  disabled={draft.items.length === 1}
-                  aria-label={`Remove item ${index + 1}`}
-                >
-                  Remove
-                </button>
+                {draft.items.length > 1 && (
+                  <button className="line-item__remove" type="button" onClick={() => removeItem(index)}>
+                    Remove item {index + 1}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -411,48 +404,51 @@ export function RequestPage() {
           </button>
         </section>
 
-        <section className="form-section form-section--pink" aria-labelledby="reason-heading" >
-          <h2 id="reason-heading">Reason</h2>
-          <label className="field field--gold field--wide">
-            <span>Why is this purchase needed?</span>
+        <section className="form-section" aria-labelledby="reason-heading" >
+          <h2 id="reason-heading"><span className="step-number" aria-hidden="true">3</span>Why do you need it?</h2>
+          <label className="field">
+            <span>Reason for this purchase</span>
+            <small id="reason-help">One or two sentences is fine. For example: the old printer stopped working.</small>
             <textarea
               id="field-businessReason"
               rows={3}
               value={draft.businessReason}
               onChange={(event) => updateField('businessReason', event.target.value)}
               aria-invalid={Boolean(errors.businessReason)}
-              aria-describedby={errors.businessReason ? 'reason-error' : 'reason-help'}
+              aria-describedby={errors.businessReason ? 'reason-help reason-error' : 'reason-help'}
             />
-            <small id="reason-help">Include the business need and what happens if the order is delayed.</small>
             <ErrorText id="reason-error" message={errors.businessReason} />
           </label>
           <details className="optional-details" open={optionalOpen} onToggle={(event) => setOptionalOpen(event.currentTarget.open)}>
-            <summary>Add a quote link or project code (optional)</summary>
+            <summary>Add a link or project code (optional)</summary>
             <div className="field-grid">
               <label className="field">
-                <span>Quote or product link (optional)</span>
+                <span>Link to the item (optional)</span>
+                <small id="vendor-url-help">Copy the web address of the item and paste it here.</small>
                 <input
                   id="field-vendorUrl"
                   type="url"
                   inputMode="url"
                   autoCapitalize="none"
                   autoCorrect="off"
-                  placeholder="https://"
                   value={draft.vendorUrl}
                   onChange={(event) => updateField('vendorUrl', event.target.value)}
+                  onBlur={(event) => updateField('vendorUrl', normalizeLink(event.target.value))}
                   aria-invalid={Boolean(errors.vendorUrl)}
-                  aria-describedby={errors.vendorUrl ? 'vendor-url-error' : undefined}
+                  aria-describedby={errors.vendorUrl ? 'vendor-url-help vendor-url-error' : 'vendor-url-help'}
                 />
                 <ErrorText id="vendor-url-error" message={errors.vendorUrl} />
               </label>
               <label className="field">
-                <span>Cost center or project code (optional)</span>
+                <span>Project code (optional)</span>
+                <small id="cost-center-help">Leave this empty if you do not have one.</small>
                 <input
                   id="field-costCenter"
                   autoCapitalize="characters"
                   value={draft.costCenter}
                   onChange={(event) => updateField('costCenter', event.target.value)}
                   maxLength={50}
+                  aria-describedby="cost-center-help"
                 />
               </label>
             </div>
@@ -473,12 +469,12 @@ export function RequestPage() {
 
         <section className="submit-section" >
           <div className="submit-summary">
-            <h2>Request total: {formatMoney(totals.total)}</h2>
-            <p>After submitting, you will receive one request code for status checks.</p>
+            <h2>Total: {formatMoney(totals.total)}</h2>
+            <p>Prices are in US dollars. After you send this, you will get a code to check on your request.</p>
           </div>
           <Turnstile key={turnstileVersion} onToken={handleTurnstile} />
           <button className="button button--primary button--large" type="submit" disabled={isSubmitting || departmentsLoading || !departments.length}>
-            {isSubmitting ? 'Submitting…' : retryPending ? 'Retry submission' : 'Submit request'}
+            {isSubmitting ? 'Sending…' : retryPending ? 'Try sending again' : 'Send request'}
           </button>
         </section>
       </form>

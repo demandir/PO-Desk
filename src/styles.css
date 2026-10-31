@@ -1,26 +1,27 @@
 :root {
   font-family: "Libre Franklin", "Helvetica Neue", Arial, sans-serif;
-  color: #26393f;
-  background: #e8e5e1;
+  color: #16282e;
+  background: #eef2f3;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   color-scheme: light;
-  --bg: #e8e5e1;
-  --surface: #f5f3f0;
-  --field: #b6d3da;
-  --field-strong: #91b8c3;
+  --bg: #eef2f3;
+  --surface: #fbfcfc;
+  --input: #fdfefe;
+  --input-border: #62767d;
+  --field: #dcebf0;
+  --field-strong: #b9d6df;
   --blue-deep: #73929b;
-  --pink: #e0c3cc;
-  --pink-strong: #cba6b5;
-  --ink: #26393f;
-  --muted: #506a72;
-  --accent: #d4a43a;
-  --accent-strong: #a87824;
-  --accent-soft: #ead59f;
-  --accent-ink: #2c271c;
-  --deep: #2c4147;
-  --deep-soft: #3d5a62;
-  --deep-ink: #e8e5e1;
+  --ink: #16282e;
+  --muted: #43565c;
+  --accent: #1c5d73;
+  --accent-strong: #154a5c;
+  --accent-soft: #dcebf0;
+  --accent-ink: #fbfcfc;
+  --deep: #1f3a44;
+  --deep-soft: #2f5361;
+  --deep-ink: #eef2f3;
+  --radius: 8px;
   --danger: #8b3030;
   --success: #2d654f;
   --margin: clamp(1rem, 2.2vw, 2rem);
@@ -120,20 +121,20 @@
   color-scheme: dark;
   --bg: #18262a;
   --surface: #22353a;
+  --input: #142227;
+  --input-border: #86a0a8;
   --field: #2d4850;
   --field-strong: #3d616a;
   --blue-deep: #73929b;
-  --pink: #543f47;
-  --pink-strong: #cba6b5;
-  --ink: #e8e5e1;
+  --ink: #e8eef0;
   --muted: #b6d3da;
-  --accent: #d4a43a;
-  --accent-strong: #a87824;
-  --accent-soft: #57482e;
-  --accent-ink: #1b2022;
+  --accent: #8cc7dc;
+  --accent-strong: #a9d8e8;
+  --accent-soft: #2d4850;
+  --accent-ink: #10222a;
   --deep: #101a1d;
   --deep-soft: #2e484f;
-  --deep-ink: #e8e5e1;
+  --deep-ink: #e8eef0;
   --danger: #f0a6a6;
   --success: #91c9ab;
 }
@@ -236,7 +237,7 @@ h3 {
 .mode-notice {
   padding: 0.55rem var(--margin);
   background: var(--accent-soft);
-  color: var(--accent-ink);
+  color: var(--ink);
   font-size: var(--step-small);
   text-align: center;
 }
@@ -1604,7 +1605,7 @@ h3 {
 
   .button--primary:hover,
   .nav-action:hover {
-    background: #9f7617;
+    background: var(--accent-strong);
   }
 
   .button--deep:hover {
@@ -1624,7 +1625,7 @@ h3 {
   }
 
   .footer-action:hover {
-    background: #9f7617;
+    background: var(--accent-strong);
   }
 }
 
@@ -2058,40 +2059,25 @@ body,
 }
 
 .request-intro {
-  width: min(calc(100% - 3rem), 1180px);
+  width: min(calc(100% - 2rem), 680px);
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-  align-items: center;
-  margin: 1.5rem auto 1rem;
-  padding: 2rem;
-  background: var(--field);
+  gap: 0.75rem;
+  margin: 2.5rem auto 1.5rem;
 }
 
 .request-intro h1 {
-  max-width: 18ch;
-  font-size: clamp(2rem, 3.5vw, 2.8rem);
-  line-height: 1.1;
-  letter-spacing: -0.035em;
+  max-width: none;
+  font-size: clamp(2rem, 1.6rem + 2vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
-.request-intro__copy {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.request-intro__copy p {
-  max-width: 38ch;
-  font-size: 1.1rem;
-}
-
-.request-intro__copy small {
-  max-width: 52ch;
-  color: var(--muted);
+.request-intro p {
+  font-size: 1.125rem;
 }
 
 .po-form {
-  width: min(calc(100% - 3rem), 1180px);
+  width: min(calc(100% - 2rem), 680px);
   display: grid;
   gap: 1rem;
   margin: 0 auto;
@@ -2119,11 +2105,6 @@ body,
 .form-section--deep {
   background: var(--blue-deep);
   color: #1b3036;
-}
-
-.form-section--pink {
-  background: var(--pink);
-  color: var(--ink);
 }
 
 .field-grid,
@@ -2251,7 +2232,7 @@ body,
 
 .demo-access > div:nth-child(2),
 .order-row--selected {
-  background: var(--pink);
+  background: var(--field-strong);
 }
 
 .dashboard-intro {
@@ -2361,7 +2342,7 @@ body,
 .department-manager {
   min-height: auto;
   padding: clamp(3rem, 7vw, 5rem) var(--margin);
-  background: var(--pink);
+  background: var(--accent-soft);
   color: var(--ink);
 }
 
@@ -2400,8 +2381,13 @@ body,
 }
 
 .status--needs-information {
-  background: var(--pink-strong);
-  color: #29383c;
+  background: #f5e6bf;
+  color: #4d3a0a;
+}
+
+:root[data-theme="dark"] .status--needs-information {
+  background: #4f4220;
+  color: #f4e6c0;
 }
 
 :root[data-theme="dark"] .status--approved,
@@ -2422,8 +2408,8 @@ body,
 }
 
 :root[data-theme="dark"] .mode-notice {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--accent-soft);
+  color: var(--ink);
 }
 
 :root[data-theme="dark"] .public-status dt {
@@ -2450,8 +2436,6 @@ body,
     gap: 0.8rem 1.1rem;
   }
 
-  .request-intro,
-  .receipt-page,
   .track-page,
   .login-page {
     width: 100%;
@@ -2461,18 +2445,12 @@ body,
   }
 
   .request-intro {
-    gap: 1rem;
-    padding: 1.5rem 1.25rem;
-  }
-
-  .request-intro h1 {
-    font-size: 1.75rem;
+    margin-top: 1.5rem;
   }
 
   .po-form {
-    width: 100%;
     gap: 0.75rem;
-    padding: 0 1rem 2rem;
+    padding-bottom: 2rem;
   }
 
   .form-section,
@@ -2505,20 +2483,8 @@ body,
     font-weight: inherit;
   }
 
-  .field input,
-  .field select,
-  .field textarea,
-  .money-input {
-    min-height: 48px;
-  }
-
   .line-item {
     padding: 0.875rem;
-  }
-
-  .line-item__remove {
-    justify-self: end;
-    padding-inline: 0.5rem;
   }
 
   .add-item {
@@ -2572,4 +2538,291 @@ body,
   .site-header, .site-footer, .mode-notice, .receipt-actions, .tracking-receipt button, .skip-link { display: none !important; }
   .receipt-page { display: block; width: 100%; margin: 0; min-height: auto; }
   .receipt-copy, [data-ui].tracking-receipt { background: white; color: black; width: 100%; padding: 1rem; }
+}
+
+/* Plain request form. Controls and panels share --radius; every input has a visible edge. */
+.po-form .button,
+.po-form .form-section,
+.po-form .line-item,
+.po-form .error-summary,
+.po-form .retry-notice,
+.po-form .submit-section,
+.receipt-page .button,
+.field input,
+.field select,
+.field textarea,
+.money-input,
+.button,
+[data-ui].tracking-receipt,
+.track-workspace,
+.track-intro,
+.login-panel,
+.login-intro,
+[data-ui].public-status {
+  border-radius: var(--radius);
+}
+
+.field input,
+.field select,
+.field textarea,
+.money-input {
+  min-height: 56px;
+  border: 2px solid var(--input-border);
+  background: var(--input);
+  color: var(--ink);
+  font-size: 1.125rem;
+}
+
+.line-item .field input,
+.line-item .money-input {
+  background: var(--input);
+}
+
+.money-input {
+  font-weight: 600;
+}
+
+.money-input input,
+.line-item .money-input input {
+  min-height: 52px;
+  border: 0;
+  background: transparent;
+  outline: 0;
+}
+
+.money-input:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.money-input:has(input[aria-invalid="true"]) {
+  border-color: var(--danger);
+}
+
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"],
+.field textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+  outline: 1px solid var(--danger);
+}
+
+.field select {
+  cursor: pointer;
+}
+
+.po-form .field > span:first-child,
+.po-form .line-item__total > span {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.po-form .field small {
+  margin-top: -0.3rem;
+  font-size: 1rem;
+}
+
+.po-form .field-error {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.po-form .form-section {
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--field-strong);
+  background: var(--surface);
+}
+
+.po-form .form-section > h2 {
+  max-width: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.step-number {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 1.125rem;
+  letter-spacing: 0;
+}
+
+.po-form .field-grid {
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+.po-form .line-items {
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.po-form .line-item {
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+  padding: 1.25rem;
+  background: var(--bg);
+}
+
+.line-item__title {
+  grid-column: 1 / -1;
+  max-width: none;
+  font-size: 1.25rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.po-form .line-item__description {
+  grid-column: 1 / -1;
+}
+
+.po-form .line-item__total {
+  grid-column: 1 / -1;
+  min-height: auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--field-strong);
+}
+
+.po-form .line-item__remove {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 48px;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.po-form .add-item {
+  width: 100%;
+  min-height: 56px;
+  border: 2px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 1.125rem;
+}
+
+.po-form .optional-details {
+  margin-top: 1.25rem;
+  font-size: 1.125rem;
+}
+
+.po-form .optional-details summary {
+  min-height: 48px;
+  color: var(--accent);
+}
+
+.po-form .optional-details .field-grid {
+  margin-top: 1rem;
+}
+
+.po-form .submit-section {
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--field-strong);
+  background: var(--accent-soft);
+}
+
+.submit-summary h2 {
+  max-width: none;
+  margin-top: 0;
+  line-height: 1.2;
+}
+
+.po-form .submit-section p {
+  max-width: none;
+}
+
+.po-form .submit-section > .button {
+  width: 100%;
+  justify-self: stretch;
+  min-height: 64px;
+  font-size: 1.25rem;
+}
+
+.po-form .error-summary {
+  padding: 1.25rem;
+  border: 2px solid var(--danger);
+  font-size: 1.125rem;
+}
+
+.receipt-page {
+  width: min(calc(100% - 2rem), 680px);
+  min-height: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+  margin: 2.5rem auto 4rem;
+}
+
+.receipt-copy {
+  gap: 0.75rem;
+  padding: 0;
+  background: transparent;
+}
+
+.receipt-copy p {
+  max-width: none;
+  font-size: 1.125rem;
+}
+
+[data-ui].tracking-receipt {
+  width: 100%;
+  margin: 0;
+  background: var(--surface);
+  border: 2px solid var(--input-border);
+}
+
+.tracking-code {
+  font-size: clamp(2rem, 8vw, 2.75rem) !important;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+[data-ui].tracking-receipt button {
+  min-height: 48px;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.receipt-actions .button {
+  flex: 1 1 auto;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .po-form .add-item:hover {
+    background: var(--accent-soft);
+    color: var(--ink);
+  }
+}
+
+@media (max-width: 420px) {
+  .po-form .line-item {
+    grid-template-columns: 1fr;
+  }
+}
+
+.receipt-page .button--quiet {
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+.po-form .error-summary button {
+  vertical-align: top;
 }

@@ -327,7 +327,7 @@ export class DemoDataService implements DataService {
   }
 
   async signIn(): Promise<AdminProfile> {
-    throw new Error('Use a demo access button while the Supabase backend is not connected.')
+    throw new Error('Use a demo access button to sign in.')
   }
 
   async enterDemo(role: AdminRole) {
@@ -343,6 +343,10 @@ export class DemoDataService implements DataService {
 
   async signOut() {
     window.sessionStorage.removeItem(demoProfileKey)
+  }
+
+  async changePassword(): Promise<void> {
+    throw new Error('Passwords cannot be changed in demo mode.')
   }
 
   async listOrders() {
@@ -556,6 +560,11 @@ export class ApiDataService implements DataService {
 
   async enterDemo(): Promise<AdminProfile> {
     throw new Error('Demo access is unavailable on the live site.')
+  }
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const { token } = await this.request('/password', { currentPassword, newPassword })
+    this.token = asString(token)
   }
 
   async getCurrentProfile() {

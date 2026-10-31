@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { jwtVerify, SignJWT } from 'jose'
-import { decoyHash, verifyPassword } from './password.ts'
+import { decoyHash, hashPassword, verifyPassword } from './password.ts'
 import { validatePurchaseOrderRequest } from './validation.ts'
 
 export type Query = (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, any>[] }>
@@ -23,6 +23,8 @@ const requestCodePattern = /^(?:REQ-(?:[2-9A-HJ-NP-Z]{4}-){2})?[2-9A-HJ-NP-Z]{4}
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const invalidInputCodes = ['P0001', '22P02', '22007', '22003', '23514', '23502']
 const sessionLength = '8h'
+const minPasswordLength = 12
+const maxPasswordLength = 200
 
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -73,14 +75,27 @@ export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt,
   const requireUser = async (request: Request) => {
     const header = request.headers.get('authorization') ?? ''
     if (!header.toLowerCase().startsWith('bearer ')) throw new ApiError(401, 'Sign in to continue.')
+    const ended = new ApiError(401, 'Your session has ended. Sign in again.')
+    let userId: string
+    let issuedAt: number
     try {
       const { payload } = await jwtVerify(header.slice(7), key, { algorithms: ['HS256'] })
-      if (!payload.sub || !uuidPattern.test(payload.sub)) throw new Error('Missing subject')
-      return payload.sub
+      if (!payload.sub || !uuidPattern.test(payload.sub) || !payload.iat) throw new Error('Missing claims')
+      userId = payload.sub
+      issuedAt = payload.iat
     } catch {
-      throw new ApiError(401, 'Your session has ended. Sign in again.')
+      throw ended
     }
+    const { rows } = await asRole('service_role', '', (query) => query(
+      'select floor(extract(epoch from password_changed_at))::bigint as changed_at from auth.users where id = $1',
+      [userId],
+    ))
+    if (!rows[0] || issuedAt < Number(rows[0].changed_at)) throw ended
+    return userId
   }
+
+  const issueToken = (userId: string) => new SignJWT({}).setProtectedHeader({ alg: 'HS256' })
+    .setSubject(userId).setIssuedAt().setExpirationTime(sessionLength).sign(key)
 
   const readProfile = async (userId: string) => {
     const { rows } = await asRole('authenticated', userId, (query) => query(
@@ -161,9 +176,32 @@ export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt,
       if (!user || !matches) throw new ApiError(401, 'Incorrect username or password.')
       const profile = await readProfile(user.id)
       if (!profile) throw new ApiError(403, 'This account does not have PO Desk access.')
-      const token = await new SignJWT({}).setProtectedHeader({ alg: 'HS256' })
-        .setSubject(user.id).setIssuedAt().setExpirationTime(sessionLength).sign(key)
-      return { body: { token, profile } }
+      return { body: { token: await issueToken(user.id), profile } }
+    },
+
+    'POST /password': async (request) => {
+      const userId = await requireUser(request)
+      const body = await readBody(request, 1000)
+      const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : ''
+      const newPassword = typeof body.newPassword === 'string' ? body.newPassword : ''
+      await claimLimit('password-change', userId, 10)
+      const { rows } = await asRole('service_role', '', (query) => query(
+        'select password_hash from auth.users where id = $1',
+        [userId],
+      ))
+      if (!rows[0] || !(await verifyPassword(currentPassword.slice(0, maxPasswordLength), rows[0].password_hash))) {
+        throw new ApiError(400, 'Your current password is incorrect.')
+      }
+      if (newPassword.length < minPasswordLength || newPassword.length > maxPasswordLength) {
+        throw new ApiError(400, `Use at least ${minPasswordLength} characters for your new password.`)
+      }
+      if (newPassword === currentPassword) throw new ApiError(400, 'Choose a different password.')
+      const hash = await hashPassword(newPassword)
+      await asRole('service_role', '', (query) => query(
+        'update auth.users set password_hash = $1, password_changed_at = now() where id = $2',
+        [hash, userId],
+      ))
+      return { body: { token: await issueToken(userId) } }
     },
 
     'GET /me': async (request) => {

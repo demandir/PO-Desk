@@ -255,6 +255,81 @@ function DepartmentManager({
   )
 }
 
+function PasswordChange() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setError('')
+    setSaved(false)
+    if (newPassword !== confirmPassword) {
+      setError('The new passwords do not match.')
+      return
+    }
+    setSaving(true)
+    try {
+      await dataService.changePassword(currentPassword, newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setSaved(true)
+    } catch (changeError) {
+      setError(changeError instanceof Error ? changeError.message : 'Your password could not be changed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form className="password-form" onSubmit={(event) => void submit(event)}>
+      <label className="field">
+        <span>Current password</span>
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          required
+        />
+      </label>
+      <label className="field">
+        <span>New password</span>
+        <input
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          maxLength={200}
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          aria-describedby="new-password-help"
+          required
+        />
+        <small id="new-password-help">Use at least 12 characters.</small>
+      </label>
+      <label className="field">
+        <span>Confirm new password</span>
+        <input
+          type="password"
+          autoComplete="new-password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          required
+        />
+      </label>
+      {error && <p className="form-message form-message--error" role="alert">{error}</p>}
+      {saved && <p className="form-message" role="status">Password changed. Other signed-in devices have been signed out.</p>}
+      <button className="button button--primary" type="submit" disabled={saving}>
+        {saving ? 'Saving…' : 'Change password'}
+      </button>
+    </form>
+  )
+}
+
 export function AdminDashboardPage({
   profile,
   onSignOut,
@@ -430,6 +505,8 @@ export function AdminDashboardPage({
           {selectedOrder && <OrderDetail key={selectedOrder.id} order={selectedOrder} onTransition={transition} />}
         </div>
       </section>
+
+      {dataService.mode === 'live' && <details className="dashboard-disclosure"><summary>Change password</summary><PasswordChange /></details>}
 
       {stats && <details className="dashboard-disclosure"><summary>Spending overview</summary><StatChart stats={stats} /></details>}
 

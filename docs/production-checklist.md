@@ -6,15 +6,15 @@ Everything is live on the Neon project `po-desk` (organization DelMandir, US Eas
 
 ## Admin logins
 
-Each department has one login, and `admin` is the super-admin. There is no email or self-service password reset.
+Each department has one login, and `admin` is the super-admin. Admins can change their own password under **Change password** on the dashboard. Doing so signs out their other sessions.
 
-Reset a password, which appends the new one to `admin-logins.txt`:
+There is no email reset. If someone forgets a password, create a new one here, which appends it to `admin-logins.txt`:
 
 ```bash
 npm run admins -- capa
 ```
 
-Sessions last 8 hours and end when the browser tab closes. Changing a password does not end a session that is already open; it can take up to 8 hours to expire.
+Sessions last 8 hours and end when the browser tab closes.
 
 To add a login, add it to the list in `scripts/admins.ts` and run `npm run admins`.
 

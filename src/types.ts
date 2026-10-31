@@ -106,6 +106,7 @@ export interface DataService {
   enterDemo(role: AdminRole): Promise<AdminProfile>
   getCurrentProfile(): Promise<AdminProfile | null>
   signOut(): Promise<void>
+  changePassword(currentPassword: string, newPassword: string): Promise<void>
   listOrders(): Promise<PurchaseOrder[]>
   getDashboardStats(): Promise<DashboardStats>
   transitionOrder(orderId: string, targetStatus: OrderStatus, note: string): Promise<void>

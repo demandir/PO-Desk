@@ -137,6 +137,22 @@ describe('API', () => {
     expect((await call('/lookup', { body: { requestCode: 'ZZZZ-ZZZZ' } })).body.found).toBe(false)
   })
 
+  it('changes a password and ends older sessions', async () => {
+    const oldToken = await signIn('capa')
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    const change = (body: Record<string, string>, token = oldToken) => call('/password', { token, body })
+    expect((await call('/password', { body: { currentPassword: 'x', newPassword: 'y' } })).status).toBe(401)
+    expect((await change({ currentPassword: 'wrong', newPassword: 'a-long-new-password' })).status).toBe(400)
+    expect((await change({ currentPassword: 'capa-password', newPassword: 'short' })).status).toBe(400)
+    const changed = await change({ currentPassword: 'capa-password', newPassword: 'a-long-new-password' })
+    expect(changed.status).toBe(200)
+    expect((await call('/orders', { token: changed.body.token })).status).toBe(200)
+    expect((await call('/orders', { token: oldToken })).status).toBe(401)
+    expect((await call('/login', { body: { username: 'capa', password: 'capa-password' } })).status).toBe(401)
+    expect((await call('/login', { body: { username: 'capa', password: 'a-long-new-password' } })).status).toBe(200)
+    await change({ currentPassword: 'a-long-new-password', newPassword: 'capa-password' }, changed.body.token)
+  })
+
   it('lets only the super-admin add departments', async () => {
     const department = { name: 'Kitchen', code: 'KIT' }
     expect((await call('/departments', { token: await signIn('capa'), body: department })).status).toBe(403)

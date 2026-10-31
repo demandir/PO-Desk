@@ -40,7 +40,7 @@ try {
     await client.query('begin')
     try {
       if (existing.rows[0]) {
-        await client.query('update auth.users set password_hash = $1 where username = $2', [hash, username])
+        await client.query('update auth.users set password_hash = $1, password_changed_at = now() where username = $2', [hash, username])
       } else {
         const user = await client.query('insert into auth.users (username, password_hash) values ($1, $2) returning id', [username, hash])
         await client.query(

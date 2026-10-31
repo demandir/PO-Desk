@@ -1,0 +1,487 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Turnstile } from '../components/Turnstile'
+import { calculateLineTotal, calculateTotals, formatMoney } from '../lib/calculations'
+import { turnstileSiteKey } from '../lib/config'
+import { createSubmissionAttempt, readPendingSubmission, savePendingSubmission } from '../lib/submissionAttempt'
+import { SubmissionError } from '../lib/serviceErrors'
+import { flattenValidationErrors, purchaseOrderSchema } from '../lib/validation'
+import { dataService } from '../services/dataService'
+import type { Department, LineItemInput, PurchaseOrderDraft, SubmissionReceipt } from '../types'
+
+
+const makeLineItem = (): LineItemInput => ({
+  id: crypto.randomUUID(),
+  description: '',
+  quantity: 1,
+  unitPrice: 0,
+})
+
+const makeDraft = (): PurchaseOrderDraft => ({
+  requesterName: '',
+  departmentId: '',
+  vendorName: '',
+  vendorUrl: '',
+  costCenter: '',
+  businessReason: '',
+  items: [makeLineItem()],
+  currency: 'USD',
+  website: '',
+})
+
+function ErrorText({ message, id }: { message?: string; id: string }) {
+  return message ? (
+    <span className="field-error" id={id} role="alert">
+      {message}
+    </span>
+  ) : null
+}
+
+// Text inputs keep partial values like "1." intact while the draft stores numbers.
+function DecimalInput({
+  value,
+  onValueChange,
+  ...props
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+  value: number
+  onValueChange: (value: number) => void
+}) {
+  const [text, setText] = useState(value ? String(value) : '')
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      value={text}
+      onChange={(event) => {
+        const next = event.target.value.replace(/,/g, '').trim()
+        if (!/^\d*\.?\d{0,2}$/.test(next)) return
+        setText(next)
+        onValueChange(Number(next) || 0)
+      }}
+    />
+  )
+}
+
+// Validation reports fields in schema order; the summary follows the page.
+const fieldOrder = ['requesterName', 'departmentId', 'vendorName', 'items', 'businessReason', 'vendorUrl']
+const fieldRank = (field: string) => fieldOrder.indexOf(field.split('.')[0] ?? field)
+
+const errorLabel = (field: string, message: string) => {
+  const item = /^items\.(\d+)\./.exec(field)
+  return item ? `Item ${Number(item[1]) + 1}: ${message}` : message
+}
+
+function SubmissionComplete({
+  receipt,
+  onAnother,
+}: {
+  receipt: SubmissionReceipt
+  onAnother: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [copyError, setCopyError] = useState('')
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(receipt.requestCode)
+      setCopied(true)
+      setCopyError('')
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch { setCopyError('Select and copy the code above, or save this receipt.') }
+  }
+  return (
+    <main id="main-content" className="receipt-page">
+      <div className="receipt-copy">
+        <h1 className="display-heading">Request received</h1>
+        <p>Save this code to check your request later.</p>
+        <div className="receipt-actions">
+          <a className="button button--primary" href="#/track">
+            Check status
+          </a>
+          <button className="button button--quiet" type="button" onClick={onAnother}>
+            New request
+          </button>
+          <button type="button" onClick={() => window.print()}>Print / save receipt</button>
+          {copyError && <p role="status">{copyError}</p>}
+        </div>
+      </div>
+      <article className="tracking-receipt" data-ui aria-label="Request code receipt">
+        <div>
+          <span>Your request code</span>
+          <strong className="tracking-code">{receipt.requestCode}</strong>
+          <button type="button" onClick={() => void copy()}>
+            {copied ? 'Copied' : 'Copy code'}
+          </button>
+        </div>
+        <p>Submitted {new Date(receipt.submittedAt).toLocaleString()}</p>
+      </article>
+    </main>
+  )
+}
+
+export function RequestPage() {
+  const [initialAttempt] = useState(readPendingSubmission)
+  const pendingAttempt = useRef(initialAttempt)
+  const [retryPending, setRetryPending] = useState(Boolean(initialAttempt))
+  const [draft, setDraft] = useState<PurchaseOrderDraft>(() => initialAttempt?.draft ?? makeDraft())
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [formError, setFormError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [receipt, setReceipt] = useState<SubmissionReceipt | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [turnstileVersion, setTurnstileVersion] = useState(0)
+  const [departmentsLoading, setDepartmentsLoading] = useState(true)
+  const [optionalOpen, setOptionalOpen] = useState(Boolean(initialAttempt?.draft.vendorUrl || initialAttempt?.draft.costCenter))
+  const errorSummaryRef = useRef<HTMLDivElement>(null)
+  const addItemRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    void dataService
+      .listDepartments()
+      .then(setDepartments)
+      .catch(() => setFormError('Departments could not be loaded. Refresh and try again.'))
+      .finally(() => setDepartmentsLoading(false))
+  }, [])
+
+  const totals = useMemo(
+    () => calculateTotals(draft.items),
+    [draft.items],
+  )
+
+  const updateField = <K extends keyof PurchaseOrderDraft>(
+    field: K,
+    value: PurchaseOrderDraft[K],
+  ) => {
+    setDraft((current) => ({ ...current, [field]: value }))
+    setErrors((current) => {
+      const next = { ...current }
+      delete next[field]
+      return next
+    })
+  }
+
+  const updateItem = <K extends keyof LineItemInput>(
+    index: number,
+    field: K,
+    value: LineItemInput[K],
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item,
+      ),
+    }))
+    setErrors((current) => {
+      const next = { ...current }
+      delete next[`items.${index}.${String(field)}`]
+      return next
+    })
+  }
+
+  const addItem = () => {
+    updateField('items', [...draft.items, makeLineItem()])
+    requestAnimationFrame(() => document.getElementById(`field-items.${draft.items.length}.description`)?.focus())
+  }
+  const removeItem = (index: number) => {
+    if (draft.items.length === 1) return
+    updateField('items', draft.items.filter((_, itemIndex) => itemIndex !== index))
+    // Item errors are keyed by position, so they no longer match after a removal.
+    setErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !field.startsWith('items.'))))
+    addItemRef.current?.focus()
+  }
+
+  const handleTurnstile = useCallback((token: string) => setTurnstileToken(token), [])
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (isSubmitting) return
+    setFormError('')
+    const validation = purchaseOrderSchema.safeParse(draft)
+    if (!pendingAttempt.current && !validation.success) {
+      const nextErrors = flattenValidationErrors(validation.error)
+      setErrors(nextErrors)
+      if (nextErrors.vendorUrl) setOptionalOpen(true)
+      requestAnimationFrame(() => errorSummaryRef.current?.focus())
+      return
+    }
+    if (turnstileSiteKey && !turnstileToken) {
+      setFormError('Complete the spam-prevention check before submitting.')
+      requestAnimationFrame(() => errorSummaryRef.current?.focus())
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const attempt = pendingAttempt.current ?? createSubmissionAttempt(validation.success ? validation.data : draft)
+      pendingAttempt.current = attempt
+      savePendingSubmission(attempt)
+      const existing = retryPending ? await dataService.lookupPurchaseOrder(attempt.requestCode) : null
+      const result = existing ? { requestCode: attempt.requestCode, submittedAt: existing.submittedAt } : await dataService.submitPurchaseOrder(
+        attempt.draft,
+        attempt.requestCode,
+        attempt.idempotencyKey,
+        turnstileToken,
+      )
+      setReceipt(result)
+      pendingAttempt.current = null
+      savePendingSubmission(null)
+      setRetryPending(false)
+      try { window.sessionStorage.setItem('po-desk-last-request-code', result.requestCode) } catch { /* The receipt remains visible. */ }
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'The request could not be submitted.')
+      const rejected = error instanceof SubmissionError && error.rejected
+      setRetryPending(!rejected)
+      if (rejected) {
+        pendingAttempt.current = null
+        savePendingSubmission(null)
+      }
+      setTurnstileToken('')
+      setTurnstileVersion((version) => version + 1)
+      requestAnimationFrame(() => errorSummaryRef.current?.focus())
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (receipt) {
+    return (
+      <SubmissionComplete
+        receipt={receipt}
+        onAnother={() => {
+          setDraft(makeDraft())
+          setReceipt(null)
+          setErrors({})
+          setTurnstileToken('')
+          setFormError('')
+          setOptionalOpen(false)
+        }}
+      />
+    )
+  }
+
+  return (
+    <main id="main-content">
+      <section className="request-intro">
+        <div>
+          <h1>New purchase request</h1>
+        </div>
+        <div className="request-intro__copy">
+          <p>No account required. Every field is required unless marked optional. Prices are in USD.</p>
+          <small>Do not include payment, banking, government-ID, or health information.</small>
+        </div>
+      </section>
+
+      <form className="po-form" id="request-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+        {(Object.keys(errors).length > 0 || formError) && (
+          <div className="error-summary" ref={errorSummaryRef} tabIndex={-1} role="alert">
+            <strong>{retryPending ? 'Your submission has not been confirmed.' : 'Please review the request.'}</strong>
+            {formError && <p>{formError}</p>}
+            {Object.values(errors).length > 0 && (
+              <ul>
+                {Object.entries(errors).sort(([a], [b]) => fieldRank(a) - fieldRank(b)).map(([field, message]) => (
+                  <li key={field}>
+                    <button type="button" onClick={() => document.getElementById(`field-${field}`)?.focus()}>
+                      {errorLabel(field, message)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {retryPending && <p className="retry-notice" role="status">Your details are saved for a safe retry. Use “Retry submission” below; it will not create a second request.</p>}
+        <fieldset className="request-fields" disabled={isSubmitting || retryPending}>
+        <section className="form-section form-section--blue" aria-labelledby="requester-heading">
+          <h2 id="requester-heading">Your details</h2>
+          <div className="field-grid">
+            <label className="field">
+              <span>Your name</span>
+              <input
+                id="field-requesterName"
+                autoCapitalize="words"
+                value={draft.requesterName}
+                onChange={(event) => updateField('requesterName', event.target.value)}
+                autoComplete="name"
+                aria-invalid={Boolean(errors.requesterName)}
+                aria-describedby={errors.requesterName ? 'requester-name-error' : undefined}
+              />
+              <ErrorText id="requester-name-error" message={errors.requesterName} />
+            </label>
+            <label className="field">
+              <span>Department</span>
+              <select
+                id="field-departmentId"
+                value={draft.departmentId}
+                onChange={(event) => updateField('departmentId', event.target.value)}
+                aria-invalid={Boolean(errors.departmentId)}
+                aria-describedby={errors.departmentId ? 'department-error' : undefined}
+              >
+                <option value="">{departmentsLoading ? 'Loading departments…' : departments.length ? 'Choose a department' : 'No departments available'}</option>
+                {departments.map((department) => (
+                  <option value={department.id} key={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+              <ErrorText id="department-error" message={errors.departmentId} />
+            </label>
+          </div>
+        </section>
+
+        <section className="form-section form-section--porcelain" aria-labelledby="order-heading" >
+          <h2 id="order-heading">What are you ordering?</h2>
+          <div className="field-grid field-grid--vendor">
+            <label className="field">
+              <span>Vendor</span>
+              <input
+                id="field-vendorName"
+                autoComplete="off"
+                value={draft.vendorName}
+                onChange={(event) => updateField('vendorName', event.target.value)}
+                aria-invalid={Boolean(errors.vendorName)}
+                aria-describedby={errors.vendorName ? 'vendor-error' : undefined}
+              />
+              <ErrorText id="vendor-error" message={errors.vendorName} />
+            </label>
+          </div>
+
+          <div className="line-items" aria-label="Items requested">
+            {draft.items.map((item, index) => (
+              <div className="line-item" key={item.id}>
+                <label className="field line-item__description">
+                  <span>Item {index + 1} description</span>
+                  <input
+                    id={`field-items.${index}.description`}
+                    value={item.description}
+                    onChange={(event) => updateItem(index, 'description', event.target.value)}
+                    aria-invalid={Boolean(errors[`items.${index}.description`])}
+                    aria-describedby={errors[`items.${index}.description`] ? `item-${index}-description-error` : undefined}
+                  />
+                  <ErrorText
+                    id={`item-${index}-description-error`}
+                    message={errors[`items.${index}.description`]}
+                  />
+                </label>
+                <label className="field line-item__quantity">
+                  <span>Quantity</span>
+                  <DecimalInput
+                    id={`field-items.${index}.quantity`}
+                    value={item.quantity}
+                    onValueChange={(value) => updateItem(index, 'quantity', value)}
+                    aria-invalid={Boolean(errors[`items.${index}.quantity`])}
+                    aria-describedby={errors[`items.${index}.quantity`] ? `item-${index}-quantity-error` : undefined}
+                  />
+                  <ErrorText id={`item-${index}-quantity-error`} message={errors[`items.${index}.quantity`]} />
+                </label>
+                <label className="field line-item__price">
+                  <span>Unit price</span>
+                  <span className="money-input">
+                    <span aria-hidden="true">$</span>
+                    <DecimalInput
+                      id={`field-items.${index}.unitPrice`}
+                      placeholder="0.00"
+                      value={item.unitPrice}
+                      onValueChange={(value) => updateItem(index, 'unitPrice', value)}
+                      aria-invalid={Boolean(errors[`items.${index}.unitPrice`])}
+                      aria-describedby={errors[`items.${index}.unitPrice`] ? `item-${index}-price-error` : undefined}
+                    />
+                  </span>
+                  <ErrorText id={`item-${index}-price-error`} message={errors[`items.${index}.unitPrice`]} />
+                </label>
+                <div className="line-item__total">
+                  <span>Line total</span>
+                  <strong>{formatMoney(calculateLineTotal(item))}</strong>
+                </div>
+                <button
+                  className="line-item__remove"
+                  type="button"
+                  onClick={() => removeItem(index)}
+                  disabled={draft.items.length === 1}
+                  aria-label={`Remove item ${index + 1}`}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <button className="button add-item" type="button" ref={addItemRef} onClick={addItem} disabled={draft.items.length >= 25}>
+            Add another item
+          </button>
+        </section>
+
+        <section className="form-section form-section--pink" aria-labelledby="reason-heading" >
+          <h2 id="reason-heading">Reason</h2>
+          <label className="field field--gold field--wide">
+            <span>Why is this purchase needed?</span>
+            <textarea
+              id="field-businessReason"
+              rows={3}
+              value={draft.businessReason}
+              onChange={(event) => updateField('businessReason', event.target.value)}
+              aria-invalid={Boolean(errors.businessReason)}
+              aria-describedby={errors.businessReason ? 'reason-error' : 'reason-help'}
+            />
+            <small id="reason-help">Include the business need and what happens if the order is delayed.</small>
+            <ErrorText id="reason-error" message={errors.businessReason} />
+          </label>
+          <details className="optional-details" open={optionalOpen} onToggle={(event) => setOptionalOpen(event.currentTarget.open)}>
+            <summary>Add a quote link or project code (optional)</summary>
+            <div className="field-grid">
+              <label className="field">
+                <span>Quote or product link (optional)</span>
+                <input
+                  id="field-vendorUrl"
+                  type="url"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  placeholder="https://"
+                  value={draft.vendorUrl}
+                  onChange={(event) => updateField('vendorUrl', event.target.value)}
+                  aria-invalid={Boolean(errors.vendorUrl)}
+                  aria-describedby={errors.vendorUrl ? 'vendor-url-error' : undefined}
+                />
+                <ErrorText id="vendor-url-error" message={errors.vendorUrl} />
+              </label>
+              <label className="field">
+                <span>Cost center or project code (optional)</span>
+                <input
+                  id="field-costCenter"
+                  autoCapitalize="characters"
+                  value={draft.costCenter}
+                  onChange={(event) => updateField('costCenter', event.target.value)}
+                  maxLength={50}
+                />
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <label className="honeypot" aria-hidden="true">
+          Website
+          <input
+            tabIndex={-1}
+            autoComplete="off"
+            value={draft.website}
+            onChange={(event) => updateField('website', event.target.value)}
+          />
+        </label>
+
+        </fieldset>
+
+        <section className="submit-section" >
+          <div className="submit-summary">
+            <h2>Request total: {formatMoney(totals.total)}</h2>
+            <p>After submitting, you will receive one request code for status checks.</p>
+          </div>
+          <Turnstile key={turnstileVersion} onToken={handleTurnstile} />
+          <button className="button button--primary button--large" type="submit" disabled={isSubmitting || departmentsLoading || !departments.length}>
+            {isSubmitting ? 'Submitting…' : retryPending ? 'Retry submission' : 'Submit request'}
+          </button>
+        </section>
+      </form>
+    </main>
+  )
+}

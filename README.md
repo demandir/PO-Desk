@@ -2,11 +2,11 @@
 
 A lightweight purchase-order request system for one company. Employees submit without an account, department administrators see only their department, and one global administrator sees all requests and dashboard statistics.
 
-The interface uses a light-blue, porcelain, and restrained gold palette and is designed for GitHub Pages. Supabase supplies the database, authentication, row-level authorization, and two anonymous Edge Functions. No email notifications are included.
+The interface uses a light-blue, porcelain, and restrained gold palette and is designed for GitHub Pages. Neon supplies the database and the server function. No email notifications are included.
 
 ## Hosting
 
-The live site runs on GitHub Pages only, in browser-only demo mode. Requests, statuses, and admin views are saved in each visitor's browser and are never shared, so administrators do not receive requests. The Supabase code in this repository is unused unless a backend is added later, which also requires restoring the Supabase and Turnstile origins in the Content Security Policy in `index.html` and the build secrets in the deploy workflow.
+The website is hosted on GitHub Pages. Neon holds the database and runs one server function (`functions/api.ts`) that handles submissions, status checks, admin sign-in, and dashboards. Row-level security in `db/migrations` keeps each department to its own requests.
 
 ## Try it locally
 
@@ -17,7 +17,7 @@ npm run dev
 
 Open the printed local URL. When no `.env` values are present, PO Desk enters demo mode. Use the demo access buttons on the Admin page; the sample request code is `7K2M-B4WN`.
 
-To connect Supabase, copy `.env.example` to `.env.local` and enter the public project URL, public anonymous key, and optional Turnstile site key. Never put the Supabase service-role key in a `VITE_` variable.
+Local runs stay in demo mode. The published build reads its API address from `.env.production`.
 
 ## Commands
 
@@ -30,7 +30,7 @@ npm run preview
 
 ## Production setup
 
-Start with [the production checklist](docs/production-checklist.md) and [the architecture and security model](docs/architecture.md). Apply the SQL migration and deploy both Edge Functions before adding the GitHub Actions secrets.
+See [the operations guide](docs/production-checklist.md) and [the architecture and security model](docs/architecture.md).
 
 ## What is included
 

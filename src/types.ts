@@ -93,7 +93,7 @@ export interface DashboardStats {
 }
 
 export interface DataService {
-  readonly mode: 'demo' | 'supabase'
+  readonly mode: 'demo' | 'live'
   listDepartments(): Promise<Department[]>
   submitPurchaseOrder(
     draft: PurchaseOrderDraft,
@@ -102,7 +102,7 @@ export interface DataService {
     turnstileToken?: string,
   ): Promise<SubmissionReceipt>
   lookupPurchaseOrder(requestCode: string): Promise<PublicOrderStatus | null>
-  signIn(email: string, password: string): Promise<AdminProfile>
+  signIn(username: string, password: string): Promise<AdminProfile>
   enterDemo(role: AdminRole): Promise<AdminProfile>
   getCurrentProfile(): Promise<AdminProfile | null>
   signOut(): Promise<void>

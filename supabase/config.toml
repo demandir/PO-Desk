@@ -1,7 +1,0 @@
-project_id = "po-desk"
-
-[functions.submit-po]
-verify_jwt = false
-
-[functions.lookup-po]
-verify_jwt = false

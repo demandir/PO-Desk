@@ -5,7 +5,6 @@ import { SiteHeader } from './components/SiteHeader'
 import { RequestPage } from './pages/RequestPage'
 import { TrackPage } from './pages/TrackPage'
 import { dataService } from './services/dataService'
-import { configurationError } from './lib/config'
 import type { AdminProfile } from './types'
 
 // Most visitors only submit or track a request, so admin screens load on demand.
@@ -105,8 +104,6 @@ export default function App() {
   } else page = <RequestPage />
 
   const isDashboard = route === '/admin' && Boolean(profile)
-
-  if (configurationError) return <main className="loading-page"><h1>Connection setup needed</h1><p>{configurationError}</p></main>
 
   return (
     <>

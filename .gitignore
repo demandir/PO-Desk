@@ -7,3 +7,5 @@ dist/
 coverage/
 *.log
 *.tsbuildinfo
+.neon
+admin-logins.txt

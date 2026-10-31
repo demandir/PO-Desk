@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validatePurchaseOrderRequest } from '../../supabase/functions/_shared/validation'
+import { validatePurchaseOrderRequest } from '../../functions/validation'
 
 const validRequest = {
   requesterName: 'Alex Morgan',

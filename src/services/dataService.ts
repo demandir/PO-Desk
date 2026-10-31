@@ -1,8 +1,7 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { calculateDashboardStats, calculateLineTotal, calculateTotals } from '../lib/calculations'
-import { hasSupabaseConfig, supabaseAnonKey, supabaseUrl } from '../lib/config'
+import { apiUrl } from '../lib/config'
 import { normalizeRequestCode } from '../lib/secrets'
-import { functionError } from '../lib/serviceErrors'
+import { functionError, SubmissionError } from '../lib/serviceErrors'
 import { purchaseOrderSchema } from '../lib/validation'
 import type {
   AdminProfile,
@@ -470,27 +469,48 @@ const mapOrder = (row: DatabaseRecord): PurchaseOrder => {
   }
 }
 
-export class SupabaseDataService implements DataService {
-  readonly mode = 'supabase' as const
-  private clientPromise: Promise<SupabaseClient>
+const sessionKey = 'po-desk-session'
 
-  constructor(client?: SupabaseClient) {
-    this.clientPromise = client ? Promise.resolve(client) : import('@supabase/supabase-js').then(({ createClient }) =>
-      createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-      }),
-    )
+export class ApiDataService implements DataService {
+  readonly mode = 'live' as const
+
+  constructor(
+    private readonly baseUrl = apiUrl,
+    private readonly fetchImpl: typeof fetch = (...args) => fetch(...args),
+  ) {}
+
+  private get token() {
+    try { return window.sessionStorage.getItem(sessionKey) ?? '' } catch { return '' }
+  }
+
+  private set token(value: string) {
+    try {
+      if (value) window.sessionStorage.setItem(sessionKey, value)
+      else window.sessionStorage.removeItem(sessionKey)
+    } catch { /* The session lasts until the page is closed. */ }
+  }
+
+  private async request(path: string, body?: unknown) {
+    const headers: Record<string, string> = {}
+    if (body !== undefined) headers['Content-Type'] = 'application/json'
+    if (this.token) headers.Authorization = `Bearer ${this.token}`
+    let response: Response
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch (error) {
+      throw await functionError(error)
+    }
+    if (!response.ok) throw await functionError({ context: response })
+    return (await response.json()) as DatabaseRecord
   }
 
   async listDepartments() {
-    const client = await this.clientPromise
-    const { data, error } = await client
-      .from('departments')
-      .select('id, name, code, active')
-      .eq('active', true)
-      .order('name')
-    if (error) throw error
-    return ((data ?? []) as DatabaseRecord[]).map((row) => ({
+    const { departments } = await this.request('/departments')
+    return ((departments ?? []) as DatabaseRecord[]).map((row) => ({
       id: asString(row.id),
       name: asString(row.name),
       code: asString(row.code),
@@ -504,101 +524,61 @@ export class SupabaseDataService implements DataService {
     idempotencyKey: string,
     turnstileToken?: string,
   ) {
-    const client = await this.clientPromise
-    const { data, error } = await client.functions.invoke('submit-po', {
-      body: {
-        request: draft,
-        requestCode,
-        idempotencyKey,
-        turnstileToken: turnstileToken ?? '',
-      },
+    const response = await this.request('/submit', {
+      request: draft,
+      requestCode,
+      idempotencyKey,
+      turnstileToken: turnstileToken ?? '',
     })
-    if (error) throw await functionError(error)
-    const response = data as DatabaseRecord
-    if (!response || typeof response.submittedAt !== 'string' || Number.isNaN(Date.parse(response.submittedAt))) {
+    if (typeof response.submittedAt !== 'string' || Number.isNaN(Date.parse(response.submittedAt))) {
       throw new Error('Submission could not be confirmed. Retry with the same request details.')
     }
-    return {
-      requestCode,
-      submittedAt: asString(response.submittedAt),
-    }
+    return { requestCode, submittedAt: response.submittedAt }
   }
 
   async lookupPurchaseOrder(requestCode: string) {
-    const client = await this.clientPromise
-    const { data, error } = await client.functions.invoke('lookup-po', {
-      body: {
-        requestCode: normalizeRequestCode(requestCode),
-      },
-    })
-    if (error) throw await functionError(error)
-    const row = (data ?? {}) as DatabaseRecord
+    const code = normalizeRequestCode(requestCode)
+    const row = await this.request('/lookup', { requestCode: code })
     if (row.found !== true) return null
     return {
-      requestCode: normalizeRequestCode(requestCode),
+      requestCode: code,
       status: asString(row.status) as OrderStatus,
       submittedAt: asString(row.submittedAt),
       updatedAt: asString(row.updatedAt),
     }
   }
 
-  async signIn(email: string, password: string) {
-    const client = await this.clientPromise
-    const { error } = await client.auth.signInWithPassword({ email, password })
-    if (error) throw error
-    const profile = await this.getCurrentProfile()
-    if (!profile) {
-      await client.auth.signOut()
-      throw new Error('This account does not have PO Desk access.')
-    }
-    return profile
+  async signIn(username: string, password: string) {
+    const { token, profile } = await this.request('/login', { username, password })
+    this.token = asString(token)
+    return mapProfile(profile as DatabaseRecord)
   }
 
   async enterDemo(): Promise<AdminProfile> {
-    throw new Error('Demo access is unavailable when Supabase is connected.')
+    throw new Error('Demo access is unavailable on the live site.')
   }
 
   async getCurrentProfile() {
-    const client = await this.clientPromise
-    const { data: session, error: sessionError } = await client.auth.getSession()
-    if (sessionError) throw sessionError
-    if (!session.session) return null
-    const { data, error } = await client.auth.getUser()
-    if (error) throw error
-    if (!data.user) return null
-    const { data: profile, error: profileError } = await client
-      .from('profiles')
-      .select('user_id, full_name, role, department_id, departments(name)')
-      .eq('user_id', data.user.id)
-      .single()
-    if (profileError && profileError.code !== 'PGRST116') throw profileError
-    if (!profile) return null
-    return mapProfile(profile as unknown as DatabaseRecord)
+    if (!this.token) return null
+    try {
+      const { profile } = await this.request('/me')
+      return mapProfile(profile as DatabaseRecord)
+    } catch (error) {
+      if (error instanceof SubmissionError && error.rejected) {
+        this.token = ''
+        return null
+      }
+      throw error
+    }
   }
 
   async signOut() {
-    const client = await this.clientPromise
-    const { error } = await client.auth.signOut()
-    if (error) throw error
+    this.token = ''
   }
 
   async listOrders() {
-    const client = await this.clientPromise
-    const rows: DatabaseRecord[] = []
-    const pageSize = 250
-    for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await client
-        .from('purchase_orders')
-        .select('id, reference, department_id, requester_name, vendor_name, vendor_url, cost_center, business_reason, currency, subtotal, total, status, created_at, updated_at, departments(name, code), purchase_order_items(*), audit_events(*)')
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(offset, offset + pageSize - 1)
-      if (error) throw error
-      const page = (data ?? []) as unknown as DatabaseRecord[]
-      rows.push(...page)
-      if (page.length < pageSize) break
-    }
-    return Array.from(new Map(rows.map((row) => [row.id, row])).values()).map(mapOrder)
+    const { orders } = await this.request('/orders')
+    return ((orders ?? []) as DatabaseRecord[]).map(mapOrder)
   }
 
   async getDashboardStats() {
@@ -606,27 +586,13 @@ export class SupabaseDataService implements DataService {
   }
 
   async transitionOrder(orderId: string, targetStatus: OrderStatus, note: string) {
-    const client = await this.clientPromise
-    const { error } = await client.rpc('transition_purchase_order', {
-      p_order_id: orderId,
-      p_target_status: targetStatus,
-      p_note: note.trim(),
-    })
-    if (error) throw error
+    await this.request('/transition', { orderId, targetStatus, note: note.trim() })
   }
 
   async addDepartment(name: string, code: string) {
-    const client = await this.clientPromise
-    const { data, error } = await client
-      .from('departments')
-      .insert({ name: name.trim(), code: code.trim().toUpperCase() })
-      .select('id, name, code, active')
-      .single()
-    if (error) throw error
-    return data as Department
+    const { department } = await this.request('/departments', { name, code })
+    return department as Department
   }
 }
 
-export const dataService: DataService = hasSupabaseConfig
-  ? new SupabaseDataService()
-  : new DemoDataService()
+export const dataService: DataService = apiUrl ? new ApiDataService() : new DemoDataService()

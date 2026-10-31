@@ -7,7 +7,7 @@ export function AdminLoginPage({
 }: {
   onAuthenticated: (profile: AdminProfile) => void
 }) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -17,7 +17,7 @@ export function AdminLoginPage({
     setError('')
     setLoading(true)
     try {
-      onAuthenticated(await dataService.signIn(email.trim(), password))
+      onAuthenticated(await dataService.signIn(username.trim(), password))
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : 'Sign in failed.')
     } finally {
@@ -73,12 +73,14 @@ export function AdminLoginPage({
         ) : (
           <form className="login-form" onSubmit={(event) => void signIn(event)}>
             <label className="field">
-              <span>Work email</span>
+              <span>Username</span>
               <input
-                type="email"
                 autoComplete="username"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
                 required
               />
             </label>

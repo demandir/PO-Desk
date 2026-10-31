@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { DemoDataService, SupabaseDataService } from '../src/services/dataService'
+import { DemoDataService, ApiDataService } from '../src/services/dataService'
 import { createSubmissionAttempt, readPendingSubmission, savePendingSubmission } from '../src/lib/submissionAttempt'
 import { functionError } from '../src/lib/serviceErrors'
 import type { PurchaseOrderDraft } from '../src/types'
@@ -64,21 +63,10 @@ describe('submission recovery and demo workflow', () => {
 })
 
 describe('production data adapter', () => {
-  it('loads beyond 250 requests so totals and searches include older records', async () => {
-    const rows = Array.from({ length: 271 }, (_, index) => ({ id: String(index), status: 'submitted', total: 10, created_at: '2026-10-01', updated_at: '2026-10-01' }))
-    const range = vi.fn(async (start: number, end: number) => ({ data: rows.slice(start, end + 1), error: null }))
-    const query = { select: vi.fn(() => query), order: vi.fn(() => query), range }
-    const client = { from: vi.fn(() => query) } as unknown as SupabaseClient
-    const service = new SupabaseDataService(client)
-    expect(await service.listOrders()).toHaveLength(271)
-    expect(range.mock.calls).toEqual([[0, 249], [250, 499]])
-    expect((await service.getDashboardStats()).totalRequestedValue).toBe(2710)
-    expect(query.select.mock.calls[0]?.[0]).not.toContain('request_code_hash')
-  })
+  const respond = (body: unknown, status = 200) => vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
 
   it('does not show a successful receipt when the server returns an incomplete response', async () => {
-    const client = { functions: { invoke: async () => ({ data: {}, error: null }) } } as unknown as SupabaseClient
-    await expect(new SupabaseDataService(client).submitPurchaseOrder(draft(), 'code', 'key')).rejects.toThrow('not be confirmed')
+    await expect(new ApiDataService('https://api.test', respond({})).submitPurchaseOrder(draft(), 'code', 'key')).rejects.toThrow('not be confirmed')
   })
 
   it('distinguishes a rejected submission from an uncertain connection failure', async () => {
@@ -86,5 +74,14 @@ describe('production data adapter', () => {
     expect(rejected.rejected).toBe(true)
     expect(rejected.message).toContain('Too many')
     expect((await functionError(new Error('network'))).rejected).toBe(false)
+  })
+
+  it('sends the session token and clears it when the server rejects it', async () => {
+    const service = new ApiDataService('https://api.test', respond({ token: 'abc', profile: { user_id: '1', full_name: 'A', role: 'global_admin' } }))
+    await service.signIn('admin', 'secret')
+    expect(window.sessionStorage.getItem('po-desk-session')).toBe('abc')
+    const expired = new ApiDataService('https://api.test', respond({ error: 'Your session has ended.' }, 401))
+    expect(await expired.getCurrentProfile()).toBeNull()
+    expect(window.sessionStorage.getItem('po-desk-session')).toBeNull()
   })
 })

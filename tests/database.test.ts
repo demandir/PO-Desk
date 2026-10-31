@@ -1,11 +1,11 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { PGlite } from '@electric-sql/pglite'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-// Run the actual migration and PostgreSQL policies, with only Supabase Auth's
-// user table, JWT identity helper, and platform roles supplied by this harness.
+// Run the actual migrations and PostgreSQL policies.
 let db: PGlite
+const migrations = new URL('../db/migrations/', import.meta.url)
 const operations = '00000000-0000-4000-8000-000000000001'
 const technology = '00000000-0000-4000-8000-000000000002'
 const operationsAdmin = '20000000-0000-4000-8000-000000000001'
@@ -50,21 +50,12 @@ const rejected = async (sql: string, params: unknown[] = [], message?: string | 
 
 beforeAll(async () => {
   db = new PGlite()
-  await db.exec(`
-    create role anon nologin;
-    create role authenticated nologin;
-    create role service_role nologin bypassrls;
-    create schema auth;
-    create table auth.users (id uuid primary key);
-    create function auth.uid() returns uuid language sql stable as
-      $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-    grant usage on schema auth to anon, authenticated, service_role;
-  `)
-  await db.exec(await readFile(new URL('../supabase/migrations/20261029000000_initial.sql', import.meta.url), 'utf8'))
-  await db.exec(await readFile(new URL('../supabase/migrations/20261031000000_short_request_codes.sql', import.meta.url), 'utf8'))
+  for (const name of (await readdir(migrations)).sort()) await db.exec(await readFile(new URL(name, migrations), 'utf8'))
   await db.exec(`
     insert into public.departments(id, name, code) values ('${technology}', 'Technology', 'TECH');
-    insert into auth.users(id) values ('${operationsAdmin}'), ('${technologyAdmin}'), ('${globalAdmin}'), ('${unassignedUser}');
+    insert into auth.users(id, username, password_hash) values
+      ('${operationsAdmin}', 'operations', 'x'), ('${technologyAdmin}', 'technology', 'x'),
+      ('${globalAdmin}', 'admin', 'x'), ('${unassignedUser}', 'unassigned', 'x');
     insert into public.profiles(user_id, full_name, role, department_id) values
       ('${operationsAdmin}', 'Operations Admin', 'department_admin', '${operations}'),
       ('${technologyAdmin}', 'Technology Admin', 'department_admin', '${technology}'),

@@ -154,10 +154,10 @@ describe('Telegram bot', () => {
     expect((await call('/telegram/link', { body: {} })).status).toBe(401)
   })
 
-  it('sends a new request to its department and the super-admin only', async () => {
+  it('sends a new request to its department only', async () => {
     const order = await submit(departments.FAC!)
     expect(messagesTo(facilitiesChat)).toHaveLength(1)
-    expect(messagesTo(adminChat)).toHaveLength(1)
+    expect(messagesTo(adminChat)).toHaveLength(0)
     expect(messagesTo(capaChat)).toHaveLength(0)
     const { payload } = messagesTo(facilitiesChat)[0]!
     expect(payload.text).toContain(order.reference)
@@ -198,13 +198,47 @@ describe('Telegram bot', () => {
     expect(audit.rows).toEqual([{ actor_name: 'facilities lead', note: 'Within this month budget' }])
   })
 
-  it('requires a reason before denying, and removes the buttons for every admin', async () => {
+  it('tells the super-admin once a department admin approves, without buttons', async () => {
     const order = await submit(departments.FAC!)
-    await tap(adminChat, `decide:rejected:${order.id}`)
-    await say(adminChat, 'Over the yearly budget')
+    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    await say(facilitiesChat, 'Within this month budget')
+    const alerts = messagesTo(adminChat)
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]!.payload.text).toContain(`${order.reference}: Approved`)
+    expect(alerts[0]!.payload.text).toContain('Reason: Within this month budget')
+    expect(alerts[0]!.payload.text).toContain('Total: $25.00')
+    expect(alerts[0]!.payload.reply_markup.inline_keyboard).toEqual([])
+  })
+
+  it('tells the super-admin about approvals made on the website', async () => {
+    const order = await submit(departments.FAC!)
+    await call('/transition', { token: await signIn('facilities'), body: { orderId: order.id, targetStatus: 'approved', note: 'Approved' } })
+    expect(messagesTo(adminChat).at(-1)!.payload.text).toContain(`${order.reference}: Approved`)
+  })
+
+  it('does not tell the super-admin about denials', async () => {
+    const order = await submit(departments.FAC!)
+    await tap(facilitiesChat, `decide:rejected:${order.id}`)
+    await say(facilitiesChat, 'Over the yearly budget')
+    expect(await statusOf(order.id)).toBe('rejected')
+    expect(messagesTo(adminChat)).toHaveLength(0)
+  })
+
+  it('still lists denied requests for the super-admin on the site', async () => {
+    const order = await submit(departments.FAC!)
+    await tap(facilitiesChat, `decide:rejected:${order.id}`)
+    await say(facilitiesChat, 'Over the yearly budget')
+    const { body } = await call('/orders', { token: await signIn('admin') })
+    expect(body.orders.find((row: { id: string }) => row.id === order.id).status).toBe('rejected')
+  })
+
+  it('requires a reason before denying, and removes the buttons', async () => {
+    const order = await submit(departments.FAC!)
+    await tap(facilitiesChat, `decide:rejected:${order.id}`)
+    await say(facilitiesChat, 'Over the yearly budget')
     expect(await statusOf(order.id)).toBe('rejected')
     const edits = sent.filter(({ method }) => method === 'editMessageText')
-    expect(edits.map(({ payload }) => payload.chat_id).sort()).toEqual([facilitiesChat, adminChat].sort())
+    expect(edits.map(({ payload }) => payload.chat_id)).toEqual([facilitiesChat])
     for (const { payload } of edits) {
       expect(payload.text).toContain('Denied')
       expect(payload.text).toContain('Reason: Over the yearly budget')

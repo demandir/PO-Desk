@@ -32,7 +32,7 @@ npx neon@latest deploy --env .env.local
 
 ## Telegram bot
 
-The bot runs inside the same function. New requests go to the department's connected admins and the super-admin, with Accept and Deny buttons. Either button asks for a written reason, and the request does not change until the reason is sent. A reason lapses after 30 minutes. Requesters send their request code to the bot to follow it, and they see the status and the reason, not the request details.
+The bot runs inside the same function. New requests go to the department's connected admins, with Accept and Deny buttons. The super-admin gets a message only once a request is approved, with no buttons, and never for a denial. Every request still shows on the site, and the super-admin can send `/pending` to see open requests. Either button asks for a written reason, and the request does not change until the reason is sent. A reason lapses after 30 minutes. Requesters send their request code to the bot to follow it, and they see the status and the reason, not the request details.
 
 To set it up:
 

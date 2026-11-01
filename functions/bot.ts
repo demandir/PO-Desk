@@ -141,26 +141,8 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
     ))
   }
 
-  // Tell every connected admin for the department. The alert row is claimed first,
-  // so a retried submission never alerts twice, and released if sending fails.
-  const notifyNewOrder = async (reference: string) => {
-    const { order, chats } = await service(async (query) => {
-      const { rows } = await query(`${orderSelect} where po.reference = $1`, [reference])
-      const found = rows[0]
-      if (!found) return { order: null, chats: [] as Record<string, any>[] }
-      const claimed = await query(
-        `insert into public.telegram_order_alerts (purchase_order_id, chat_id)
-         select $1::uuid, a.telegram_user_id
-         from public.telegram_admins a
-         join public.profiles p on p.user_id = a.user_id
-         where p.role = 'global_admin' or p.department_id = $2
-         on conflict do nothing
-         returning chat_id`,
-        [found.id, found.department_id],
-      )
-      return { order: found, chats: claimed.rows }
-    })
-    if (!order) return
+  // The alert row is claimed first, so a retry never alerts twice, and released if sending fails.
+  const sendClaimedAlerts = async (order: Record<string, any>, chats: Record<string, any>[]) => {
     await Promise.all(chats.map(async ({ chat_id: chatId }) => {
       try {
         await sendAlert(Number(chatId), order)
@@ -174,17 +156,44 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
     }))
   }
 
+  const claimAlerts = async (query: Query, orderId: string, audience: string, params: unknown[] = []) => (await query(
+    `insert into public.telegram_order_alerts (purchase_order_id, chat_id)
+     select $1::uuid, a.telegram_user_id
+     from public.telegram_admins a
+     join public.profiles p on p.user_id = a.user_id
+     where ${audience}
+     on conflict do nothing
+     returning chat_id`,
+    [orderId, ...params],
+  )).rows
+
+  // New requests go to the department's admins. The super-admin hears about approvals only.
+  const notifyNewOrder = async (reference: string) => {
+    const { order, chats } = await service(async (query) => {
+      const { rows } = await query(`${orderSelect} where po.reference = $1`, [reference])
+      const found = rows[0]
+      if (!found) return { order: null, chats: [] as Record<string, any>[] }
+      return { order: found, chats: await claimAlerts(query, found.id, 'p.department_id = $2', [found.department_id]) }
+    })
+    if (order) await sendClaimedAlerts(order, chats)
+  }
+
   // Refresh every admin's alert and tell anyone tracking the request.
   const notifyStatusChange = async (orderId: string) => {
-    const { order, alerts, followers } = await service(async (query) => ({
-      order: await loadOrder(query, orderId),
-      alerts: (await query(
-        'select chat_id, message_id from public.telegram_order_alerts where purchase_order_id = $1 and message_id is not null',
-        [orderId],
-      )).rows,
-      followers: (await query('select chat_id from public.telegram_order_followers where purchase_order_id = $1', [orderId])).rows,
-    }))
+    const { order, alerts, followers, superAdmins } = await service(async (query) => {
+      const found = await loadOrder(query, orderId)
+      return {
+        order: found,
+        alerts: (await query(
+          'select chat_id, message_id from public.telegram_order_alerts where purchase_order_id = $1 and message_id is not null',
+          [orderId],
+        )).rows,
+        followers: (await query('select chat_id from public.telegram_order_followers where purchase_order_id = $1', [orderId])).rows,
+        superAdmins: found?.status === 'approved' ? await claimAlerts(query, orderId, `p.role = 'global_admin'`) : [],
+      }
+    })
     if (!order) return
+    await sendClaimedAlerts(order, superAdmins)
     const deliveries = [
       ...alerts.map(({ chat_id: chatId, message_id: messageId }) => send('editMessageText', {
         chat_id: Number(chatId),

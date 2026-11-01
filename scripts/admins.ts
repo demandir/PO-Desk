@@ -16,6 +16,7 @@ const accounts = [
   { username: 'satsang', fullName: 'Satsang Admin', departmentCode: 'SAT' },
   { username: 'accounting', fullName: 'Accounting Admin', departmentCode: 'ACCT' },
   { username: 'avit', fullName: 'AV/IT Admin', departmentCode: 'AVIT' },
+  { username: 'ibky', fullName: 'iBKY Admin', departmentCode: 'IBKY' },
 ]
 
 const alphabet = '23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ'

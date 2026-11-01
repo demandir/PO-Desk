@@ -8,5 +8,6 @@ insert into public.departments (name, code) values
   ('Mahila', 'MAH'),
   ('Satsang', 'SAT'),
   ('Accounting', 'ACCT'),
-  ('AV/IT', 'AVIT')
+  ('AV/IT', 'AVIT'),
+  ('iBKY', 'IBKY')
 on conflict (code) do nothing;

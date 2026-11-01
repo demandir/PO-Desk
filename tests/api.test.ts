@@ -67,7 +67,7 @@ describe('API', () => {
   it('lists only active departments to anonymous visitors', async () => {
     const { body } = await call('/departments')
     const names = body.departments.map((department: { name: string }) => department.name)
-    expect(names).toEqual(['AV/IT', 'Accounting', 'CAPA', 'Facilities', 'Mahila', 'Satsang', 'Service'])
+    expect(names).toEqual(['AV/IT', 'Accounting', 'CAPA', 'Facilities', 'Mahila', 'Satsang', 'Service', 'iBKY'])
   })
 
   it('rejects other origins', async () => {

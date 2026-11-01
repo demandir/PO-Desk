@@ -1,3 +1,5 @@
+export const requestCodePattern = /^(?:REQ-(?:[2-9A-HJ-NP-Z]{4}-){2})?[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/
+
 type Item = { description?: unknown; quantity?: unknown; unitPrice?: unknown }
 
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')

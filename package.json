@@ -11,7 +11,9 @@
     "test:watch": "vitest",
     "lint:taste": "node /Users/shailpatel/.agents/skills/design-taste-frontend/scripts/lint.mjs src index.html",
     "db:migrate": "node --env-file=.env.local scripts/db-migrate.ts",
-    "admins": "node --env-file=.env.local scripts/admins.ts"
+    "admins": "node --env-file=.env.local scripts/admins.ts",
+    "telegram:setup": "node --env-file=.env.local scripts/telegram-setup.ts",
+    "telegram:links": "node --env-file=.env.local scripts/telegram-links.ts"
   },
   "dependencies": {
     "@neon/config": "^1.10.0",

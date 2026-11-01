@@ -30,6 +30,50 @@ npm run db:migrate
 npx neon@latest deploy --env .env.local
 ```
 
+## Telegram bot
+
+The bot runs inside the same function. New requests go to the department's connected admins and the super-admin, with Accept and Deny buttons. Either button asks for a written reason, and the request does not change until the reason is sent. A reason lapses after 30 minutes. Requesters send their request code to the bot to follow it, and they see the status and the reason, not the request details.
+
+To set it up:
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token.
+2. Add these to `.env.local`. Keep the token out of chat and out of git. The webhook secret can be any long random text, using only letters, numbers, `_` and `-`.
+
+   ```
+   TELEGRAM_BOT_TOKEN=
+   TELEGRAM_BOT_USERNAME=
+   TELEGRAM_WEBHOOK_SECRET=
+   TELEGRAM_API_URL=https://br-autumn-truth-b8telxln-api.compute.c-14.us-east-1.aws.neon.tech
+   ```
+
+3. Apply the database change, deploy the function, then connect Telegram to it.
+
+   ```bash
+   npm run db:migrate
+   ```
+
+   ```bash
+   npx neon@latest deploy --env .env.local
+   ```
+
+   ```bash
+   npm run telegram:setup
+   ```
+
+4. Create a one-time connection link for each admin. They are written to the git-ignored `telegram-links.txt` and last 3 days. Send each admin their own link, then delete the file.
+
+   ```bash
+   npm run telegram:links
+   ```
+
+   For one admin:
+
+   ```bash
+   npm run telegram:links -- capa
+   ```
+
+A department login can connect several Telegram accounts. Changing or resetting its password disconnects all of them, so they need new links. If Telegram is unavailable when a request arrives, the request is still saved, and `/pending` shows it.
+
 ## Backups
 
 The Neon Free plan keeps 6 hours of history. Export the data regularly and keep exports private: never commit them to this public repository.
@@ -38,7 +82,7 @@ The Neon Free plan keeps 6 hours of history. Export the data regularly and keep 
 
 The Free plan stops the database until the next billing period if it uses 100 compute hours or 5 GB of transfer in a month. Data is kept. Check usage in the Neon Console.
 
-Submissions are limited to 30 an hour per address, status checks to 60, and sign-ins to 30 per address and 15 per username. Turnstile spam protection is optional: set `TURNSTILE_SECRET_KEY` on the function and `VITE_TURNSTILE_SITE_KEY` in `.env.production`, and add `https://challenges.cloudflare.com` to the Content Security Policy in `index.html`.
+Submissions are limited to 30 an hour per address, status checks to 60, and sign-ins to 30 per address and 15 per username, and Telegram code attempts to 20 per chat. Turnstile spam protection is optional: set `TURNSTILE_SECRET_KEY` on the function and `VITE_TURNSTILE_SITE_KEY` in `.env.production`, and add `https://challenges.cloudflare.com` to the Content Security Policy in `index.html`.
 
 ## Local verification
 

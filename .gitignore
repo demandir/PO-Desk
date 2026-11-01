@@ -9,3 +9,4 @@ coverage/
 *.tsbuildinfo
 .neon
 admin-logins.txt
+telegram-links.txt

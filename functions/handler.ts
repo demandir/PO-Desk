@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { jwtVerify, SignJWT } from 'jose'
+import { createBot, verifyWebhookSecret, type BotConfig } from './bot.ts'
 import { decoyHash, hashPassword, verifyPassword } from './password.ts'
-import { validatePurchaseOrderRequest } from './validation.ts'
+import { requestCodePattern, validatePurchaseOrderRequest } from './validation.ts'
 
 export type Query = (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, any>[] }>
 
@@ -15,11 +16,12 @@ export interface ApiConfig {
   authSecret: string
   rateLimitSalt: string
   turnstileSecret?: string
+  telegram?: BotConfig
+  runInBackground?: (work: Promise<unknown>) => void
 }
 
 type DatabaseRole = 'anon' | 'authenticated' | 'service_role'
 
-const requestCodePattern = /^(?:REQ-(?:[2-9A-HJ-NP-Z]{4}-){2})?[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const invalidInputCodes = ['P0001', '22P02', '22007', '22003', '23514', '23502']
 const sessionLength = '8h'
@@ -44,7 +46,9 @@ const verifyTurnstile = async (secret: string, token: string, remoteIp: string) 
   return result.success === true
 }
 
-export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt, turnstileSecret }: ApiConfig) => {
+export const createApi = ({
+  database, allowedOrigins, authSecret, rateLimitSalt, turnstileSecret, telegram, runInBackground = () => undefined,
+}: ApiConfig) => {
   const key = new TextEncoder().encode(authSecret)
 
   const asRole = <T>(role: DatabaseRole, userId: string, run: (query: Query) => Promise<T>) =>
@@ -61,6 +65,12 @@ export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt,
     const { rows } = await asRole('service_role', '', (query) =>
       query('select public.claim_rate_limit($1, $2, $3) as allowed', [bucket, fingerprint, limit]))
     if (!rows[0]?.allowed) throw new ApiError(429, 'Too many attempts. Try again later.')
+  }
+
+  const bot = telegram ? createBot(telegram, { asRole, claimLimit }) : null
+
+  const notify = (work: Promise<unknown>) => {
+    runInBackground(work.catch((error) => console.error('telegram notification failed', (error as Error).message)))
   }
 
   const readBody = async (request: Request, maxLength: number) => {
@@ -138,6 +148,7 @@ export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt,
           [JSON.stringify(payload), requestCode, idempotencyKey],
         ))
         if (!rows[0]?.submitted_at) throw new Error('Missing submission receipt')
+        if (bot) notify(bot.notifyNewOrder(rows[0].reference))
         return { status: 201, body: { submittedAt: rows[0].submitted_at } }
       } catch (error) {
         if (invalidInputCodes.includes((error as { code?: string }).code ?? '')) {
@@ -240,7 +251,15 @@ export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt,
         if (code === '22P02') throw new ApiError(400, 'That status change is not allowed.')
         throw error
       }
+      if (bot) notify(bot.notifyStatusChange(text(body.orderId)))
       return { body: { ok: true } }
+    },
+
+    'POST /telegram/link': async (request) => {
+      if (!bot) throw new ApiError(404, 'Not found.')
+      const userId = await requireUser(request)
+      await claimLimit('telegram-link', userId, 10)
+      return { body: { url: await bot.issueAdminLink(userId) } }
     },
 
     'POST /departments': async (request) => {
@@ -262,7 +281,22 @@ export const createApi = ({ database, allowedOrigins, authSecret, rateLimitSalt,
     },
   }
 
+  // Telegram calls this directly, so it proves itself with a secret instead of an Origin.
+  const handleWebhook = async (request: Request) => {
+    if (!bot || !verifyWebhookSecret(request.headers.get('x-telegram-bot-api-secret-token'), telegram!.webhookSecret)) {
+      return new Response(null, { status: 404 })
+    }
+    try {
+      await bot.handleUpdate(await readBody(request, 100_000))
+    } catch (error) {
+      // Answering with an error makes Telegram resend the same update.
+      console.error('telegram webhook failed', (error as Error).message)
+    }
+    return new Response(null, { status: 200 })
+  }
+
   return async (request: Request) => {
+    if (request.method === 'POST' && new URL(request.url).pathname === '/telegram/webhook') return handleWebhook(request)
     const origin = request.headers.get('origin')
     const allowed = Boolean(origin && allowedOrigins.includes(origin))
     const headers = {

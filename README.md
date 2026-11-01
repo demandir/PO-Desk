@@ -2,7 +2,7 @@
 
 A lightweight purchase-order request system for one company. Employees submit without an account, department administrators see only their department, and one global administrator sees all requests and dashboard statistics.
 
-The interface uses a light-blue, porcelain, and restrained gold palette and is designed for GitHub Pages. Neon supplies the database and the server function. No email notifications are included.
+The interface uses a light-blue, porcelain, and restrained gold palette and is designed for GitHub Pages. Neon supplies the database and the server function. Notifications go through an optional Telegram bot; no email notifications are included.
 
 ## Hosting
 
@@ -41,6 +41,7 @@ See [the operations guide](docs/production-checklist.md) and [the architecture a
 - Persistent light and dark modes using the company white, pink, blue, and gold palette.
 - Department-scoped and global administrator dashboards.
 - Status workflow, review notes, and append-only audit history.
+- Telegram bot for live admin alerts, accept or deny with a required reason, and requester tracking by code.
 - Global status/spend statistics and department management.
 - Database row-level security, server-generated references/totals, anonymous rate limits, and optional Turnstile protection.
 - GitHub Pages deployment workflow and browser-only demo mode.

@@ -1,4 +1,4 @@
-import { attachDatabasePool } from '@neon/functions'
+import { attachDatabasePool, waitUntil } from '@neon/functions'
 import { Pool } from 'pg'
 import { createApi, type Database } from './handler.ts'
 
@@ -28,6 +28,14 @@ const handle = createApi({
   authSecret: process.env.AUTH_SECRET!,
   rateLimitSalt: process.env.RATE_LIMIT_SALT!,
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY,
+  telegram: process.env.TELEGRAM_BOT_TOKEN
+    ? {
+        token: process.env.TELEGRAM_BOT_TOKEN,
+        webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET!,
+        username: process.env.TELEGRAM_BOT_USERNAME!,
+      }
+    : undefined,
+  runInBackground: waitUntil,
 })
 
 export default { fetch: handle }

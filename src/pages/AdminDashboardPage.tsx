@@ -11,8 +11,13 @@ import type {
 } from '../types'
 import { allowedTransitions, statusLabels } from '../types'
 
-const filterStatuses: Array<OrderStatus | 'all'> = [
+type StatusFilter = OrderStatus | 'all' | 'accepted'
+
+const acceptedStatuses: OrderStatus[] = ['approved', 'ordered']
+
+const filterStatuses: StatusFilter[] = [
   'all',
+  'accepted',
   'submitted',
   'under_review',
   'needs_information',
@@ -341,7 +346,7 @@ export function AdminDashboardPage({
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [departments, setDepartments] = useState<Department[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -375,7 +380,8 @@ export function AdminDashboardPage({
   const filteredOrders = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     return orders.filter((order) => {
-      if (statusFilter !== 'all' && order.status !== statusFilter) return false
+      if (statusFilter === 'accepted' && !acceptedStatuses.includes(order.status)) return false
+      if (statusFilter !== 'all' && statusFilter !== 'accepted' && order.status !== statusFilter) return false
       if (departmentFilter !== 'all' && order.departmentId !== departmentFilter) return false
       if (!normalized) return true
       return [
@@ -387,6 +393,14 @@ export function AdminDashboardPage({
       ].some((value) => value.toLowerCase().includes(normalized))
     })
   }, [departmentFilter, orders, query, statusFilter])
+
+  const showStatus = (status: StatusFilter) => {
+    setStatusFilter(status)
+    setQuery('')
+    setDepartmentFilter('all')
+  }
+  const acceptedCount = orders.filter((order) => acceptedStatuses.includes(order.status)).length
+  const declinedCount = orders.filter((order) => order.status === 'rejected').length
 
   const selectedOrder = filteredOrders.find((order) => order.id === selectedId) ?? filteredOrders[0] ?? null
 
@@ -451,11 +465,11 @@ export function AdminDashboardPage({
               <span>Status</span>
               <select
                 value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as OrderStatus | 'all')}
+                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
               >
                 {filterStatuses.map((status) => (
                   <option key={status} value={status}>
-                    {status === 'all' ? 'All statuses' : statusLabels[status]}
+                    {status === 'all' ? 'All statuses' : status === 'accepted' ? 'Accepted or ordered' : statusLabels[status]}
                   </option>
                 ))}
               </select>
@@ -474,7 +488,13 @@ export function AdminDashboardPage({
           </div>
         </div>
         <div className="filter-actions">
-          <button type="button" className="text-button text-button--strong" onClick={() => { setStatusFilter('submitted'); setQuery(''); setDepartmentFilter('all') }}>Show new requests</button>
+          <button type="button" className="text-button text-button--strong" onClick={() => showStatus('submitted')}>Show new requests</button>
+          {profile.role === 'global_admin' && (
+            <>
+              <button type="button" className="text-button text-button--strong" onClick={() => showStatus('accepted')}>Show accepted ({acceptedCount})</button>
+              <button type="button" className="text-button text-button--strong" onClick={() => showStatus('rejected')}>Show declined ({declinedCount})</button>
+            </>
+          )}
           {(query || statusFilter !== 'all' || departmentFilter !== 'all') && <button type="button" className="text-button" onClick={() => { setQuery(''); setStatusFilter('all'); setDepartmentFilter('all') }}>Clear filters</button>}
         </div>
 

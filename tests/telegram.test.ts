@@ -13,6 +13,8 @@ const facilitiesChat = 1001
 const capaChat = 1002
 const adminChat = 1003
 const requesterChat = 2001
+const group = -100500
+const strangerChat = 9999
 
 let db: PGlite
 let api: (request: Request) => Promise<Response>
@@ -24,7 +26,9 @@ let background: Promise<unknown>[] = []
 
 const telegramFetch = (async (url: string, init: RequestInit) => {
   if (failSending) return Response.json({ ok: false, error_code: 502 })
-  sent.push({ method: String(url).split('/').pop()!, payload: JSON.parse(String(init.body)) })
+  const entry = { method: String(url).split('/').pop()!, payload: JSON.parse(String(init.body)) }
+  sent.push(entry)
+  sentIds.set(entry, nextMessageId)
   return Response.json({ ok: true, result: { message_id: nextMessageId++ } })
 }) as typeof fetch
 
@@ -53,9 +57,26 @@ const webhook = async (update: Record<string, unknown>, token: string | null = s
 }
 
 const say = (chatId: number, text: string) => webhook({ message: { text, chat: { id: chatId, type: 'private' }, from: { id: chatId } } })
-const tap = (chatId: number, data: string, messageId = 1) => webhook({
-  callback_query: { id: 'tap', data, from: { id: chatId }, message: { message_id: messageId, chat: { id: chatId, type: 'private' } } },
+
+let groupMessageId = 5000
+const post = (fromId: number, text: string, replyTo?: number, chatId = group) => webhook({
+  message: {
+    message_id: groupMessageId++, text, chat: { id: chatId, type: 'supergroup' }, from: { id: fromId, first_name: `User${fromId}` },
+    ...(replyTo ? { reply_to_message: { message_id: replyTo } } : {}),
+  },
 })
+const tap = (fromId: number, data: string, chatId = group) => webhook({
+  callback_query: { id: 'tap', data, from: { id: fromId, first_name: `User${fromId}` }, message: { message_id: 1, chat: { id: chatId, type: chatId === fromId ? 'private' : 'supergroup' } } },
+})
+const lastPrompt = () => [...sent].reverse().find(({ payload }) => String(payload.text ?? '').includes('Reply to this message'))!
+// Tap a button, then reply to the bot's question with a reason.
+const decide = async (fromId: number, status: 'approved' | 'rejected', orderId: string, reason: string) => {
+  sent = []
+  await tap(fromId, `decide:${status}:${orderId}`)
+  const prompt = lastPrompt()
+  await post(fromId, reason, prompt ? sentIds.get(prompt)! : undefined)
+}
+const sentIds = new Map<object, number>()
 
 const signIn = async (username: string) =>
   (await call('/login', { body: { username, password: `${username}-password` } })).body.token as string
@@ -120,6 +141,7 @@ beforeAll(async () => {
   await connect('facilities', facilitiesChat)
   await connect('capa', capaChat)
   await connect('admin', adminChat)
+  await post(facilitiesChat, '/connect')
 }, 30000)
 
 beforeEach(() => { sent = []; failSending = false })
@@ -133,8 +155,14 @@ describe('Telegram bot', () => {
     expect(sent).toHaveLength(0)
   })
 
-  it('ignores group chats', async () => {
-    await webhook({ message: { text: '/pending', chat: { id: -5, type: 'group' }, from: { id: facilitiesChat } } })
+  it('lets only a connected admin choose the group', async () => {
+    await post(strangerChat, '/connect', undefined, -777)
+    expect(messagesTo(-777).at(-1)!.payload.text).toContain('Only a connected PO Desk admin')
+    expect((await db.query('select chat_id from public.telegram_group')).rows).toEqual([{ chat_id: group }])
+  })
+
+  it('ignores other groups', async () => {
+    await post(facilitiesChat, '/pending', undefined, -888)
     expect(sent).toHaveLength(0)
   })
 
@@ -154,19 +182,18 @@ describe('Telegram bot', () => {
     expect((await call('/telegram/link', { body: {} })).status).toBe(401)
   })
 
-  it('sends a new request to its department only', async () => {
-    const order = await submit(departments.FAC!)
-    expect(messagesTo(facilitiesChat)).toHaveLength(1)
-    expect(messagesTo(adminChat)).toHaveLength(0)
-    expect(messagesTo(capaChat)).toHaveLength(0)
-    const { payload } = messagesTo(facilitiesChat)[0]!
+  it('posts every new request once, in the group only', async () => {
+    const order = await submit(departments.CAPA!)
+    expect(sent).toHaveLength(1)
+    const { payload } = messagesTo(group)[0]!
     expect(payload.text).toContain(order.reference)
+    expect(payload.text).toContain('Department: CAPA')
     expect(payload.text).toContain('Total: $25.00')
     expect(payload).not.toHaveProperty('parse_mode')
     expect(payload.reply_markup.inline_keyboard[0].map((button: { text: string }) => button.text)).toEqual(['Accept', 'Deny'])
   })
 
-  it('does not alert twice when a submission is retried', async () => {
+  it('does not post twice when a submission is retried', async () => {
     const order = await submit(departments.FAC!)
     sent = []
     await submit(departments.FAC!, order.requestCode, order.idempotencyKey)
@@ -178,87 +205,83 @@ describe('Telegram bot', () => {
     const order = await submit(departments.CAPA!)
     failSending = false
     expect(await statusOf(order.id)).toBe('submitted')
-    await say(capaChat, '/pending')
-    expect(messagesTo(capaChat).some(({ payload }) => payload.text?.includes(order.reference))).toBe(true)
+    await post(capaChat, '/pending')
+    expect(messagesTo(group).some(({ payload }) => payload.text?.includes(order.reference))).toBe(true)
+  })
+
+  it('asks the admin who tapped for a reason, by name', async () => {
+    const order = await submit(departments.FAC!)
+    sent = []
+    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    expect(await statusOf(order.id)).toBe('submitted')
+    const { payload } = lastPrompt()
+    expect(payload.chat_id).toBe(group)
+    expect(payload.text).toContain(`why are you accepting ${order.reference}?`)
+    expect(payload.entities[0]).toMatchObject({ type: 'text_mention', user: { id: facilitiesChat } })
+    expect(payload.reply_markup).toMatchObject({ force_reply: true, selective: true })
   })
 
   it('requires a reason before accepting', async () => {
     const order = await submit(departments.FAC!)
     sent = []
     await tap(facilitiesChat, `decide:approved:${order.id}`)
+    const promptId = sentIds.get(lastPrompt())!
+    await post(facilitiesChat, 'ok', promptId)
     expect(await statusOf(order.id)).toBe('submitted')
-    expect(messagesTo(facilitiesChat).at(-1)!.payload.text).toContain(`Why are you accepting ${order.reference}?`)
-    await say(facilitiesChat, 'ok')
-    expect(await statusOf(order.id)).toBe('submitted')
-    await say(facilitiesChat, 'Within this month budget')
+    await post(facilitiesChat, 'Within this month budget', promptId)
     expect(await statusOf(order.id)).toBe('approved')
     const audit = await db.query<{ actor_name: string; note: string }>(
       `select actor_name, note from public.audit_events where purchase_order_id = $1 and action = 'status_changed'`, [order.id],
     )
     expect(audit.rows).toEqual([{ actor_name: 'facilities lead', note: 'Within this month budget' }])
+    expect(messagesTo(group).at(-1)!.payload.text).toBe('Saved: Approved by facilities lead.')
   })
 
-  it('tells the super-admin once a department admin approves, without buttons', async () => {
+  it('only counts a reply to the question as the reason', async () => {
     const order = await submit(departments.FAC!)
     await tap(facilitiesChat, `decide:approved:${order.id}`)
-    await say(facilitiesChat, 'Within this month budget')
-    const alerts = messagesTo(adminChat)
-    expect(alerts).toHaveLength(1)
-    expect(alerts[0]!.payload.text).toContain(`${order.reference}: Approved`)
-    expect(alerts[0]!.payload.text).toContain('Reason: Within this month budget')
-    expect(alerts[0]!.payload.text).toContain('Total: $25.00')
-    expect(alerts[0]!.payload.reply_markup.inline_keyboard).toEqual([])
+    await post(facilitiesChat, 'Chatting about something else in the group')
+    await post(facilitiesChat, 'Replying to some other message', 12345)
+    expect(await statusOf(order.id)).toBe('submitted')
+    await post(facilitiesChat, '/cancel')
   })
 
-  it('tells the super-admin about approvals made on the website', async () => {
+  it('does not take a reason from someone else in the group', async () => {
     const order = await submit(departments.FAC!)
-    await call('/transition', { token: await signIn('facilities'), body: { orderId: order.id, targetStatus: 'approved', note: 'Approved' } })
-    expect(messagesTo(adminChat).at(-1)!.payload.text).toContain(`${order.reference}: Approved`)
+    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    const promptId = sentIds.get(lastPrompt())!
+    await post(capaChat, 'Approving this for Facilities', promptId)
+    await post(strangerChat, 'Approving this for Facilities', promptId)
+    expect(await statusOf(order.id)).toBe('submitted')
+    await post(facilitiesChat, '/cancel')
   })
 
-  it('does not tell the super-admin about denials', async () => {
+  it('denies with a reason and removes the buttons', async () => {
     const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:rejected:${order.id}`)
-    await say(facilitiesChat, 'Over the yearly budget')
-    expect(await statusOf(order.id)).toBe('rejected')
-    expect(messagesTo(adminChat)).toHaveLength(0)
-  })
-
-  it('still lists denied requests for the super-admin on the site', async () => {
-    const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:rejected:${order.id}`)
-    await say(facilitiesChat, 'Over the yearly budget')
-    const { body } = await call('/orders', { token: await signIn('admin') })
-    expect(body.orders.find((row: { id: string }) => row.id === order.id).status).toBe('rejected')
-  })
-
-  it('requires a reason before denying, and removes the buttons', async () => {
-    const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:rejected:${order.id}`)
-    await say(facilitiesChat, 'Over the yearly budget')
+    await decide(facilitiesChat, 'rejected', order.id, 'Over the yearly budget')
     expect(await statusOf(order.id)).toBe('rejected')
     const edits = sent.filter(({ method }) => method === 'editMessageText')
-    expect(edits.map(({ payload }) => payload.chat_id)).toEqual([facilitiesChat])
-    for (const { payload } of edits) {
-      expect(payload.text).toContain('Denied')
-      expect(payload.text).toContain('Reason: Over the yearly budget')
-      expect(payload.reply_markup.inline_keyboard).toEqual([])
-    }
+    expect(edits.map(({ payload }) => payload.chat_id)).toEqual([group])
+    expect(edits[0]!.payload.text).toContain('Denied')
+    expect(edits[0]!.payload.text).toContain('Reason: Over the yearly budget')
+    expect(edits[0]!.payload.reply_markup.inline_keyboard).toEqual([])
   })
 
   it('leaves the request unchanged on /cancel', async () => {
     const order = await submit(departments.FAC!)
     await tap(facilitiesChat, `decide:approved:${order.id}`)
-    await say(facilitiesChat, '/cancel')
-    await say(facilitiesChat, 'This text is not a reason now')
+    const promptId = sentIds.get(lastPrompt())!
+    await post(facilitiesChat, '/cancel')
+    await post(facilitiesChat, 'This text is not a reason now', promptId)
     expect(await statusOf(order.id)).toBe('submitted')
   })
 
   it('lets a reason lapse', async () => {
     const order = await submit(departments.FAC!)
     await tap(facilitiesChat, `decide:approved:${order.id}`)
+    const promptId = sentIds.get(lastPrompt())!
     await db.query(`update public.telegram_admins set pending_until = now() - interval '1 minute'`)
-    await say(facilitiesChat, 'This reason arrives too late')
+    await post(facilitiesChat, 'This reason arrives too late', promptId)
     expect(await statusOf(order.id)).toBe('submitted')
   })
 
@@ -266,37 +289,45 @@ describe('Telegram bot', () => {
     const order = await submit(departments.CAPA!)
     sent = []
     await tap(facilitiesChat, `decide:approved:${order.id}`)
-    expect(sent.find(({ method }) => method === 'answerCallbackQuery')!.payload.text).toContain('cannot decide')
-    await say(facilitiesChat, 'Trying to approve anyway')
+    expect(sent.find(({ method }) => method === 'answerCallbackQuery')!.payload.text).toBe('Only the CAPA admin can decide this request.')
+    expect(lastPrompt()).toBeUndefined()
     expect(await statusOf(order.id)).toBe('submitted')
   })
 
-  it('stops a stranger from deciding', async () => {
+  it('stops a group member without a PO Desk login from deciding', async () => {
     const order = await submit(departments.FAC!)
-    await tap(9999, `decide:approved:${order.id}`)
-    await say(9999, 'Approve this please')
+    sent = []
+    await tap(strangerChat, `decide:approved:${order.id}`)
+    expect(sent.find(({ method }) => method === 'answerCallbackQuery')!.payload.text).toContain('Only PO Desk admins')
     expect(await statusOf(order.id)).toBe('submitted')
+  })
+
+  it('lets the super-admin decide any department', async () => {
+    const order = await submit(departments.CAPA!)
+    await decide(adminChat, 'approved', order.id, 'Approved by the super-admin')
+    expect(await statusOf(order.id)).toBe('approved')
   })
 
   it('keeps the first decision when two admins answer at once', async () => {
     const order = await submit(departments.FAC!)
     await tap(facilitiesChat, `decide:approved:${order.id}`)
+    const first = sentIds.get(lastPrompt())!
     await tap(adminChat, `decide:rejected:${order.id}`)
-    await say(facilitiesChat, 'Approved for the event')
-    await say(adminChat, 'Denied by the super-admin')
+    const second = sentIds.get(lastPrompt())!
+    await post(facilitiesChat, 'Approved for the event', first)
+    await post(adminChat, 'Denied by the super-admin', second)
     expect(await statusOf(order.id)).toBe('approved')
-    expect(messagesTo(adminChat).at(-1)!.payload.text).toContain('already decided')
+    expect(messagesTo(group).at(-1)!.payload.text).toContain('already decided')
   })
 
-  it('tracks a request by code and sends the reason to the requester', async () => {
+  it('tracks a request by code in a private chat and sends the reason', async () => {
     const order = await submit(departments.FAC!)
     await say(requesterChat, order.requestCode.toLowerCase())
     const first = messagesTo(requesterChat).at(-1)!.payload.text as string
     expect(first).toContain(`Request ${order.reference}: New`)
     expect(first).not.toContain('Alex')
     expect(first).not.toContain('Vendor')
-    await tap(facilitiesChat, `decide:rejected:${order.id}`)
-    await say(facilitiesChat, 'Please use the existing stock')
+    await decide(facilitiesChat, 'rejected', order.id, 'Please use the existing stock')
     expect(messagesTo(requesterChat).at(-1)!.payload.text).toBe(`Request ${order.reference}: Denied\nReason: Please use the existing stock`)
     await say(requesterChat, '/status')
     expect(messagesTo(requesterChat).at(-1)!.payload.text).toContain(`${order.reference}: Denied`)
@@ -305,13 +336,27 @@ describe('Telegram bot', () => {
     expect(messagesTo(requesterChat).at(-1)!.payload.text).toContain('not tracking')
   })
 
+  it('never looks up a request code posted in the group', async () => {
+    const order = await submit(departments.FAC!)
+    sent = []
+    await post(strangerChat, order.requestCode)
+    expect(sent).toHaveLength(0)
+  })
+
   it('tells trackers about changes made on the website', async () => {
     const order = await submit(departments.CAPA!)
     await say(requesterChat, `/start ${order.requestCode}`)
     sent = []
     await call('/transition', { token: await signIn('capa'), body: { orderId: order.id, targetStatus: 'under_review', note: '' } })
     expect(messagesTo(requesterChat).at(-1)!.payload.text).toBe(`Request ${order.reference}: Under review`)
+    expect(messagesTo(group).at(-1)!.payload.text).toContain('Under review')
     await say(requesterChat, '/stop')
+  })
+
+  it('follows the group when Telegram upgrades it', async () => {
+    await webhook({ message: { message_id: 1, chat: { id: group, type: 'group' }, from: { id: facilitiesChat }, migrate_to_chat_id: -100777 } })
+    expect((await db.query('select chat_id from public.telegram_group')).rows).toEqual([{ chat_id: -100777 }])
+    await db.query('update public.telegram_group set chat_id = $1', [group])
   })
 
   it('limits guessed request codes', async () => {

@@ -32,7 +32,7 @@ npx neon@latest deploy --env .env.local
 
 ## Telegram bot
 
-The bot runs inside the same function. New requests go to the department's connected admins, with Accept and Deny buttons. The super-admin gets a message only once a request is approved, with no buttons, and never for a denial. Every request still shows on the site, and the super-admin can send `/pending` to see open requests. Either button asks for a written reason, and the request does not change until the reason is sent. A reason lapses after 30 minutes. Requesters send their request code to the bot to follow it, and they see the status and the reason, not the request details.
+The bot runs inside the same function and posts every new request in one Telegram group, with Accept and Deny buttons. Anyone in the group can see the requests, but only the admin for that request's department, or the super-admin, can decide one. After tapping a button, the admin must reply to the bot's question with a written reason, and the request does not change until they do. A reason lapses after 30 minutes. Requesters send their request code to the bot in a private chat to follow it, and they see the status and the reason, not the request details. The bot ignores request codes posted in the group.
 
 To set it up:
 
@@ -60,7 +60,9 @@ To set it up:
    npm run telegram:setup
    ```
 
-4. Create a one-time connection link for each admin. They are written to the git-ignored `telegram-links.txt` and last 3 days. Send each admin their own link, then delete the file.
+4. Create the group in Telegram and add the bot to it. Then connect your own Telegram (next step), and send `/connect` in the group. Requests are posted wherever `/connect` was last sent by a connected admin.
+
+5. Create a one-time connection link for each admin. They are written to the git-ignored `telegram-links.txt` and last 3 days. Send each admin their own link, then delete the file. Each admin opens their link, which starts a private chat with the bot, then joins the group. The link is what lets the bot know which department an admin can decide for.
 
    ```bash
    npm run telegram:links
@@ -72,7 +74,7 @@ To set it up:
    npm run telegram:links -- capa
    ```
 
-A department login can connect several Telegram accounts. Changing or resetting its password disconnects all of them, so they need new links. If Telegram is unavailable when a request arrives, the request is still saved, and `/pending` shows it.
+A department login can connect several Telegram accounts. Changing or resetting its password disconnects all of them, so they need new links. If Telegram is unavailable when a request arrives, the request is still saved, and `/pending` in the group shows it.
 
 ## Backups
 

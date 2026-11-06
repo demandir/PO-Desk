@@ -2812,9 +2812,40 @@ body,
   }
 }
 
-@media (max-width: 420px) {
+/* Keep the short numeric fields together, even on a small phone. */
+@media (max-width: 760px) {
+  .po-form .form-section,
+  .po-form .submit-section {
+    padding: 1.125rem 1rem;
+  }
+
+  .po-form .form-section > h2 {
+    margin-bottom: 1rem;
+    font-size: 1.375rem;
+  }
+
+  .po-form .field-grid {
+    gap: 1rem;
+  }
+
   .po-form .line-item {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem 0.75rem;
+    padding: 1rem 0;
+    background: transparent;
+  }
+
+  .po-form .field > span:first-child {
+    font-size: 1rem;
+  }
+
+  .po-form .optional-details {
+    font-size: 1rem;
+  }
+
+  .tracking-code {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -2825,4 +2856,227 @@ body,
 
 .po-form .error-summary button {
   vertical-align: top;
+}
+
+/* Consistent pages. Every public page uses the request form's single column and
+   panel; the footer stays at the bottom of short pages. */
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+#root > main {
+  flex: 1 0 auto;
+}
+
+.page-column {
+  width: min(calc(100% - 2rem), 680px);
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  margin: 2.5rem auto 4rem;
+}
+
+.page-column.track-page,
+.page-column.login-page {
+  width: min(calc(100% - 2rem), 680px);
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 2.5rem auto 4rem;
+}
+
+.panel.track-form,
+.panel.login-form {
+  max-width: none;
+}
+
+.panel.track-form > .button,
+.panel.login-form > .button {
+  justify-self: stretch;
+}
+
+.page-intro {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-intro h1 {
+  max-width: none;
+  margin: 0;
+  font-size: clamp(2rem, 1.6rem + 2vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.page-intro p {
+  max-width: none;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.125rem;
+}
+
+.panel {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--field-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.panel h2 {
+  max-width: none;
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.panel p {
+  max-width: none;
+  margin: 0;
+}
+
+.panel .field input {
+  min-height: 56px;
+  font-size: 1.125rem;
+}
+
+.panel > .button {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.125rem;
+}
+
+.track-form > .text-button {
+  justify-self: center;
+}
+
+.public-result__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.public-result dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--field-strong);
+}
+
+.public-result dt {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.public-result dd {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+}
+
+.public-result > p {
+  color: var(--muted);
+}
+
+.demo-choices {
+  gap: 0;
+  padding-block: 0.5rem;
+}
+
+.demo-choice {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 0;
+}
+
+.demo-choice + .demo-choice {
+  border-top: 1px solid var(--field-strong);
+}
+
+.demo-choice p {
+  margin-top: 0.35rem;
+  color: var(--muted);
+}
+
+.demo-choice .button {
+  justify-self: start;
+  min-height: 48px;
+}
+
+.button--quiet {
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+.loading-page {
+  min-height: 50svh;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.125rem;
+}
+
+/* Dashboard: one surface colour for every summary figure and the open request. */
+.stat-strip {
+  gap: 1px;
+  background: var(--field-strong);
+  border-block: 1px solid var(--field-strong);
+}
+
+.stat-strip > div,
+.stat-strip > div:nth-child(2),
+.stat-strip > div:nth-child(3),
+.stat-strip > div:nth-child(4) {
+  min-height: 0;
+  gap: 0.5rem;
+  padding: 1.25rem var(--margin);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.stat-strip span {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.order-detail__header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--field-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.order-detail__header span:first-child {
+  color: var(--muted);
+}
+
+.order-detail__reason h3 {
+  font-size: 1.125rem;
+}
+
+@media (max-width: 760px) {
+  .page-column {
+    margin-top: 1.5rem;
+  }
+
+  .stat-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .order-detail__header {
+    padding: 1.25rem 1rem;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .site-nav .nav-action:hover {
+    color: var(--accent-ink);
+  }
 }

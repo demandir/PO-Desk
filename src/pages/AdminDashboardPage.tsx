@@ -110,7 +110,7 @@ function OrderDetail({
           <div><dt>Project name</dt><dd>{order.costCenter || 'Not provided'}</dd></div>
         </dl>
         <div className="order-detail__reason">
-          <h3>Business reason</h3>
+          <h3>Purpose</h3>
           <p>{order.businessReason}</p>
           {order.vendorUrl && (
             <a href={order.vendorUrl} target="_blank" rel="noreferrer">
@@ -122,7 +122,7 @@ function OrderDetail({
 
       <div className="order-table-wrap">
         <table className="order-table">
-          <caption>Requested items</caption>
+          <caption>Items</caption>
           <thead>
             <tr><th>Item</th><th>Quantity</th><th>Unit price</th><th>Total</th></tr>
           </thead>
@@ -235,7 +235,7 @@ function DepartmentManager({
     <section className="department-manager" aria-labelledby="department-manager-heading">
       <div>
         <h2 id="department-manager-heading">Departments</h2>
-        <p>These choices appear on the no-login request form.</p>
+        <p>These appear in the department list on the request form.</p>
         <ul>
           {departments.map((department) => (
             <li key={department.id}><strong>{department.name}</strong><span>{department.code}</span></li>
@@ -411,7 +411,7 @@ export function AdminDashboardPage({
   }
 
   if (loading && !stats) {
-    return <main id="main-content" className="loading-page" aria-live="polite">Loading the purchase ledger…</main>
+    return <main id="main-content" className="loading-page" aria-live="polite">Loading requests…</main>
   }
 
   return (
@@ -421,13 +421,13 @@ export function AdminDashboardPage({
           <h1>{profile.role === 'global_admin' ? 'All purchase requests' : `${profile.departmentName ?? 'Department'} requests`}</h1>
           <p>
             {profile.role === 'global_admin'
-              ? 'Every department, current commitments, and the work waiting for a decision.'
-              : `Review requests assigned to ${profile.departmentName ?? 'your department'} and keep each decision in the record.`}
+              ? 'Every department, with the requests that still need a decision.'
+              : `Requests sent to ${profile.departmentName ?? 'your department'}. Every decision is kept in the history.`}
           </p>
         </div>
         <div className="dashboard-user">
           <span>{profile.fullName}</span>
-          <strong>{profile.role === 'global_admin' ? 'Global administrator' : `${profile.departmentName} administrator`}</strong>
+          <strong>{profile.role === 'global_admin' ? 'Super admin' : `${profile.departmentName} admin`}</strong>
           <button className="button button--quiet" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh requests'}</button>
         </div>
       </section>
@@ -449,7 +449,7 @@ export function AdminDashboardPage({
         <div className="ledger-heading">
           <div>
             <h2 id="ledger-heading">Review requests</h2>
-            <p>{filteredOrders.length} requests match the current view.</p>
+            <p>{filteredOrders.length} {filteredOrders.length === 1 ? 'request matches' : 'requests match'} the current view.</p>
           </div>
           <div className="ledger-filters">
             <label className="field field--compact">

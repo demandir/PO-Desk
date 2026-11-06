@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDate } from '../lib/calculations'
 import { dataService } from '../services/dataService'
-import type { PublicOrderStatus } from '../types'
+import type { OrderStatus, PublicOrderStatus } from '../types'
+
+const statusMessages: Record<OrderStatus, string> = {
+  submitted: 'Waiting for review',
+  under_review: 'Being reviewed',
+  needs_information: 'More information needed',
+  approved: 'Approved for ordering',
+  rejected: 'Not approved',
+  ordered: 'Ordered',
+}
 
 export function TrackPage() {
   const [requestCode, setRequestCode] = useState(() => {
@@ -39,68 +48,57 @@ export function TrackPage() {
   }
 
   return (
-    <main id="main-content" className="track-page">
-      <section className="track-intro">
-        <h1 className="display-heading">Check a request</h1>
-        <p>
-          Enter the single request code shown after submission. The lookup reveals status only,
-          never requester or purchasing details.
-        </p>
+    <main id="main-content" className="page-column track-page">
+      <section className="page-intro">
+        <h1>Check a request</h1>
+        <p>Enter the code you got after sending your request.</p>
+      </section>
+
+      <form className="panel track-form" onSubmit={(event) => void lookup(event)}>
+        <label className="field">
+          <span>Request code</span>
+          <input
+            value={requestCode}
+            onChange={(event) => { setRequestCode(event.target.value.toUpperCase()); setResult(null); setError('') }}
+            placeholder="7K2M-B4WN"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
+        </label>
+        {error && <p className="form-message form-message--error" role="alert">{error}</p>}
+        <button className="button button--primary" type="submit" disabled={loading}>
+          {loading ? 'Checking…' : 'Check status'}
+        </button>
         {dataService.mode === 'demo' && (
-          <button className="text-button text-button--strong" type="button" onClick={useDemo}>
+          <button className="text-button" type="button" onClick={useDemo}>
             Use sample request code
           </button>
         )}
-      </section>
+      </form>
 
-      <section className="track-workspace" data-reveal>
-        <form className="track-form" onSubmit={(event) => void lookup(event)}>
-          <label className="field">
-            <span>Request code</span>
-            <input
-              value={requestCode}
-              onChange={(event) => { setRequestCode(event.target.value.toUpperCase()); setResult(null); setError('') }}
-              placeholder="7K2M-B4WN"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-            />
-          </label>
-          {error && <p className="form-message form-message--error" role="alert">{error}</p>}
-          <button className="button button--primary" type="submit" disabled={loading}>
-            {loading ? 'Checking…' : 'Check status'}
-          </button>
-        </form>
-
-        <article className="public-status" data-ui aria-live="polite">
-          {result ? (
-            <>
-              <div className="public-status__topline">
-                <span>{result.requestCode}</span>
-                <StatusBadge status={result.status} />
+      <div aria-live="polite">
+        {result && (
+          <article className="panel public-result">
+            <div className="public-result__topline">
+              <span>{result.requestCode}</span>
+              <StatusBadge status={result.status} />
+            </div>
+            <h2>{statusMessages[result.status]}</h2>
+            <dl>
+              <div>
+                <dt>Sent</dt>
+                <dd>{formatDate(result.submittedAt)}</dd>
               </div>
-              <h2>{result.status === 'approved' ? 'Approved for ordering' : 'Your request is in the record'}</h2>
-              <dl>
-                <div>
-                  <dt>Submitted</dt>
-                  <dd>{formatDate(result.submittedAt)}</dd>
-                </div>
-                <div>
-                  <dt>Last updated</dt>
-                  <dd>{formatDate(result.updatedAt)}</dd>
-                </div>
-              </dl>
-              <p>Contact your department administrator if more information is needed.</p>
-            </>
-          ) : (
-            <>
-              <span className="public-status__blank-mark" aria-hidden="true">PO</span>
-              <h2>Status appears here</h2>
-              <p>Only the current state and dates are returned from a public lookup.</p>
-            </>
-          )}
-        </article>
-      </section>
+              <div>
+                <dt>Last updated</dt>
+                <dd>{formatDate(result.updatedAt)}</dd>
+              </div>
+            </dl>
+            <p>Questions about this request? Contact your department admin.</p>
+          </article>
+        )}
+      </div>
     </main>
   )
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Turnstile } from '../components/Turnstile'
-import { calculateLineTotal, calculateTotals, formatMoney } from '../lib/calculations'
+import { calculateTotals, formatMoney } from '../lib/calculations'
 import { turnstileSiteKey } from '../lib/config'
 import { createSubmissionAttempt, readPendingSubmission, savePendingSubmission } from '../lib/submissionAttempt'
 import { SubmissionError } from '../lib/serviceErrors'
@@ -264,8 +264,7 @@ export function RequestPage() {
     <main id="main-content">
       <section className="request-intro">
         <h1>Request a purchase</h1>
-        <p>Fill in the three parts below, then press Send request. You do not need an account.</p>
-        <p>Please answer every question unless it says optional. Do not enter card numbers, bank details, ID numbers, or health information.</p>
+        <p>Tell us what you need. No account required.</p>
       </section>
 
       <form className="po-form" id="request-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
@@ -290,7 +289,7 @@ export function RequestPage() {
         {retryPending && <p className="retry-notice" role="status">Your answers are saved. Press Try sending again below. This will not create a second request.</p>}
         <fieldset className="request-fields" disabled={isSubmitting || retryPending}>
         <section className="form-section" aria-labelledby="requester-heading">
-          <h2 id="requester-heading"><span className="step-number" aria-hidden="true">1</span>About you</h2>
+          <h2 id="requester-heading">Your details</h2>
           <div className="field-grid">
             <label className="field">
               <span>Your name</span>
@@ -327,18 +326,17 @@ export function RequestPage() {
         </section>
 
         <section className="form-section" aria-labelledby="order-heading" >
-          <h2 id="order-heading"><span className="step-number" aria-hidden="true">2</span>What are you looking to buy?</h2>
+          <h2 id="order-heading">What you need</h2>
           <div className="field-grid">
             <label className="field">
               <span>Store or company</span>
-              <small id="vendor-help">Where will this be bought from?</small>
               <input
                 id="field-vendorName"
                 autoComplete="off"
                 value={draft.vendorName}
                 onChange={(event) => updateField('vendorName', event.target.value)}
                 aria-invalid={Boolean(errors.vendorName)}
-                aria-describedby={errors.vendorName ? 'vendor-help vendor-error' : 'vendor-help'}
+                aria-describedby={errors.vendorName ? 'vendor-error' : undefined}
               />
               <ErrorText id="vendor-error" message={errors.vendorName} />
             </label>
@@ -349,7 +347,7 @@ export function RequestPage() {
               <div className="line-item" key={item.id}>
                 <h3 className="line-item__title">Item {index + 1}</h3>
                 <label className="field line-item__description">
-                  <span>What is the item?</span>
+                  <span>Item description</span>
                   <input
                     id={`field-items.${index}.description`}
                     value={item.description}
@@ -363,7 +361,7 @@ export function RequestPage() {
                   />
                 </label>
                 <label className="field line-item__quantity">
-                  <span>How many do you need?</span>
+                  <span>Quantity</span>
                   <DecimalInput
                     id={`field-items.${index}.quantity`}
                     value={item.quantity}
@@ -387,10 +385,6 @@ export function RequestPage() {
                   </span>
                   <ErrorText id={`item-${index}-price-error`} message={errors[`items.${index}.unitPrice`]} />
                 </label>
-                <div className="line-item__total">
-                  <span>Cost of this item</span>
-                  <strong>{formatMoney(calculateLineTotal(item))}</strong>
-                </div>
                 {draft.items.length > 1 && (
                   <button className="line-item__remove" type="button" onClick={() => removeItem(index)}>
                     Remove item {index + 1}
@@ -405,10 +399,10 @@ export function RequestPage() {
         </section>
 
         <section className="form-section" aria-labelledby="reason-heading" >
-          <h2 id="reason-heading"><span className="step-number" aria-hidden="true">3</span>What is the purpose of this request?</h2>
+          <h2 id="reason-heading">Reason</h2>
           <label className="field">
-            <span>Please tell us the purpose</span>
-            <small id="reason-help">One or two sentences is fine. For example: the old printer stopped working.</small>
+            <span>Why is this needed?</span>
+            <small id="reason-help">A sentence or two is enough.</small>
             <textarea
               id="field-businessReason"
               rows={3}
@@ -420,11 +414,10 @@ export function RequestPage() {
             <ErrorText id="reason-error" message={errors.businessReason} />
           </label>
           <details className="optional-details" open={optionalOpen} onToggle={(event) => setOptionalOpen(event.currentTarget.open)}>
-            <summary>Add a link or project name (optional)</summary>
+            <summary>More details (optional)</summary>
             <div className="field-grid">
               <label className="field">
                 <span>Link to the item (optional)</span>
-                <small id="vendor-url-help">Copy the web address of the item and paste it here.</small>
                 <input
                   id="field-vendorUrl"
                   type="url"
@@ -435,20 +428,18 @@ export function RequestPage() {
                   onChange={(event) => updateField('vendorUrl', event.target.value)}
                   onBlur={(event) => updateField('vendorUrl', normalizeLink(event.target.value))}
                   aria-invalid={Boolean(errors.vendorUrl)}
-                  aria-describedby={errors.vendorUrl ? 'vendor-url-help vendor-url-error' : 'vendor-url-help'}
+                  aria-describedby={errors.vendorUrl ? 'vendor-url-error' : undefined}
                 />
                 <ErrorText id="vendor-url-error" message={errors.vendorUrl} />
               </label>
               <label className="field">
                 <span>Project name (optional)</span>
-                <small id="cost-center-help">Leave this empty if this is not for a project.</small>
                 <input
                   id="field-costCenter"
                   autoCapitalize="words"
                   value={draft.costCenter}
                   onChange={(event) => updateField('costCenter', event.target.value)}
                   maxLength={50}
-                  aria-describedby="cost-center-help"
                 />
               </label>
             </div>
@@ -470,7 +461,7 @@ export function RequestPage() {
         <section className="submit-section" >
           <div className="submit-summary">
             <h2>Total: {formatMoney(totals.total)}</h2>
-            <p>Prices are in US dollars. After you send this, you will get a code to check on your request.</p>
+            <p>USD · Save your code after sending to check the status.</p>
           </div>
           <Turnstile key={turnstileVersion} onToken={handleTurnstile} />
           <button className="button button--primary button--large" type="submit" disabled={isSubmitting || departmentsLoading || !departments.length}>

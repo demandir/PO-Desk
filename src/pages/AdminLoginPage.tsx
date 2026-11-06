@@ -35,72 +35,63 @@ export function AdminLoginPage({
   }
 
   return (
-    <main id="main-content" className="login-page">
-      <section className="login-intro">
-        <h1 className="display-heading">Review purchase requests</h1>
-        <p>
-          Department administrators see only their own queue. Global administrators can review every
-          department and company-wide totals.
-        </p>
+    <main id="main-content" className="page-column login-page">
+      <section className="page-intro">
+        <h1>Admin sign in</h1>
+        <p>Department admins see their own department's requests. The super admin sees every department.</p>
       </section>
-      <section className="login-panel" data-reveal>
-        {dataService.mode === 'demo' ? (
-          <div className="demo-access">
+      {dataService.mode === 'demo' ? (
+        <section className="panel demo-choices" aria-label="Demo access">
+          <div className="demo-choice">
             <div>
-              <h2>Department view</h2>
-              <p>See the Operations queue and make decisions only inside that department.</p>
-              <button
-                className="button button--deep"
-                type="button"
-                onClick={() => void enterDemo('department_admin')}
-              >
-                Open department view
-              </button>
+              <h2>Department admin</h2>
+              <p>Review and decide requests for one department.</p>
             </div>
-            <div>
-              <h2>Global view</h2>
-              <p>See every request, company-wide statistics, and department management.</p>
-              <button
-                className="button button--primary"
-                type="button"
-                onClick={() => void enterDemo('global_admin')}
-              >
-                Open global view
-              </button>
-            </div>
-            {error && <p className="form-message form-message--error" role="alert">{error}</p>}
-          </div>
-        ) : (
-          <form className="login-form" onSubmit={(event) => void signIn(event)}>
-            <label className="field">
-              <span>Username</span>
-              <input
-                autoComplete="username"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
-            </label>
-            {error && <p className="form-message form-message--error" role="alert">{error}</p>}
-            <button className="button button--primary" type="submit" disabled={loading}>
-              {loading ? 'Signing in…' : 'Sign in'}
+            <button className="button button--quiet" type="button" onClick={() => void enterDemo('department_admin')}>
+              Open department view
             </button>
-          </form>
-        )}
-      </section>
+          </div>
+          <div className="demo-choice">
+            <div>
+              <h2>Super admin</h2>
+              <p>See every department, spending, and department settings.</p>
+            </div>
+            <button className="button button--primary" type="button" onClick={() => void enterDemo('global_admin')}>
+              Open super admin view
+            </button>
+          </div>
+          {error && <p className="form-message form-message--error" role="alert">{error}</p>}
+        </section>
+      ) : (
+        <form className="panel login-form" onSubmit={(event) => void signIn(event)}>
+          <label className="field">
+            <span>Username</span>
+            <input
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              required
+            />
+          </label>
+          <label className="field">
+            <span>Password</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+          {error && <p className="form-message form-message--error" role="alert">{error}</p>}
+          <button className="button button--primary" type="submit" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      )}
     </main>
   )
 }

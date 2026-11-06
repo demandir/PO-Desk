@@ -1,5 +1,13 @@
 # PO Desk design critique
 
+## Mobile form refinement — November 5, 2026
+
+The form now presents three short sections: Your details, What you need, and Reason. Removed the numbered heading markers, long instructions, and per-item cost summaries. Shipping, estimated tax, delivery, and requester email are absent from both the current request form and data model. One item-based total remains at submission. Optional link and project fields stay collapsed until needed.
+
+Quantity and price remain side by side on phones; descriptions use the full width. Controls retain their large touch targets and decimal keyboards. Browser screenshots were reviewed at 320, 390, 768, and 1440 CSS pixels with no horizontal page overflow. Dark mode was checked at 320 pixels. The simplified form submitted a local demo request for three items at $12.34 each, producing $37.02 and a receipt code; adding and removing an extra item preserved the total. All 70 automated tests and the production build passed. This pass verified demo submission, not a new live production order. Screenshot: `inspect/mobile-simplified.png`.
+
+The visual check used the connected browser rather than the skill's Chrome inspector. The interface is an application form, so its functional field borders and compact sections take precedence over marketing-page composition rules.
+
 ## Direction
 
 The selected direction began as **The product performs** (seed `1860861104`) and was later simplified around a single form, live total, and one request code.

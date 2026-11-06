@@ -3,7 +3,7 @@ export function AppFooter() {
     <footer className="site-footer">
       <div className="footer-wordmark">PO Desk</div>
       <div className="footer-copy">
-        <p>Purchase requests for one company, kept inside the right department.</p>
+        <p>Purchase requests for DelMandir departments.</p>
       </div>
       <nav className="footer-links" aria-label="Footer navigation">
         <a href="#/">Request</a>

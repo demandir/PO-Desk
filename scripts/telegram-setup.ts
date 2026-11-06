@@ -23,9 +23,8 @@ await call('setWebhook', {
 await call('setMyCommands', {
   commands: [
     { command: 'status', description: 'Show requests you are tracking' },
-    { command: 'pending', description: 'Admins: show open requests' },
-    { command: 'connect', description: 'Admins: post requests in this group' },
-    { command: 'cancel', description: 'Admins: stop a decision' },
+    { command: 'pending', description: 'Group: show open requests' },
+    { command: 'cancel', description: 'Group: stop your decision' },
     { command: 'stop', description: 'Stop all messages' },
   ],
 })

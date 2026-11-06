@@ -255,13 +255,6 @@ export const createApi = ({
       return { body: { ok: true } }
     },
 
-    'POST /telegram/link': async (request) => {
-      if (!bot) throw new ApiError(404, 'Not found.')
-      const userId = await requireUser(request)
-      await claimLimit('telegram-link', userId, 10)
-      return { body: { url: await bot.issueAdminLink(userId) } }
-    },
-
     'POST /departments': async (request) => {
       const userId = await requireUser(request)
       const body = await readBody(request, 1000)

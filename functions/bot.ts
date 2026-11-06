@@ -1,8 +1,8 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { Query } from './handler.ts'
 import { requestCodePattern } from './validation.ts'
 
-type Role = 'authenticated' | 'service_role'
+type Role = 'service_role'
 type AsRole = <T>(role: Role, userId: string, run: (query: Query) => Promise<T>) => Promise<T>
 type Send = (method: string, payload: Record<string, unknown>) => Promise<Record<string, any>>
 
@@ -22,7 +22,6 @@ const maxMessageLength = 4000
 const minReasonLength = 5
 const maxReasonLength = 1000
 const reasonWindowMinutes = 30
-const adminLinkMinutes = 15
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const decisionPattern = new RegExp(`^decide:(approved|rejected):(${uuid})$`, 'i')
 const openStatuses = ['submitted', 'under_review', 'needs_information']
@@ -117,21 +116,15 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
   const loadOrder = async (query: Query, orderId: string) =>
     (await query(`${orderSelect} where po.id = $1`, [orderId])).rows[0]
 
-  const findAdmin = async (telegramUserId: number) => (await service((query) => query(
-    `select a.user_id, p.full_name, p.role, p.department_id,
-       case when a.pending_until > now() then a.pending_order_id end as pending_order_id,
-       case when a.pending_until > now() then a.pending_status end as pending_status,
-       a.pending_chat_id, a.pending_prompt_id
-     from public.telegram_admins a
-     join public.profiles p on p.user_id = a.user_id
-     where a.telegram_user_id = $1`,
+  const findPending = async (telegramUserId: number) => (await service((query) => query(
+    `select purchase_order_id, target_status, chat_id, prompt_message_id
+     from public.telegram_pending_decisions
+     where telegram_user_id = $1 and expires_at > now()`,
     [telegramUserId],
   ))).rows[0]
 
   const clearPending = (telegramUserId: number) => service((query) => query(
-    `update public.telegram_admins set pending_order_id = null, pending_status = null, pending_until = null,
-       pending_chat_id = null, pending_prompt_id = null
-     where telegram_user_id = $1`,
+    'delete from public.telegram_pending_decisions where telegram_user_id = $1',
     [telegramUserId],
   ))
 
@@ -200,48 +193,26 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
     }
   }
 
-  const issueAdminLink = async (userId: string, minutes = adminLinkMinutes) => {
-    const code = randomBytes(18).toString('base64url')
-    await service(async (query) => {
-      await query('delete from public.telegram_link_codes where expires_at < now()')
-      await query(
-        `insert into public.telegram_link_codes (code_hash, user_id, expires_at)
-         values ($1, $2, now() + make_interval(mins => $3))`,
-        [sha256(code), userId, minutes],
-      )
-    })
-    return `https://t.me/${config.username}?start=${code}`
-  }
-
-  const connectAdmin = async (chatId: number, code: string) => {
-    await claimLimit('telegram-connect', String(chatId), 20)
-    const profile = await service(async (query) => {
+  // Everyone in the connected group can decide requests, so connecting a group
+  // needs a one-time code from the person who runs PO Desk.
+  const connectGroup = async (chatId: number, code: string) => {
+    await claimLimit('telegram-group', String(chatId), 10)
+    const connected = code && await service(async (query) => {
       const { rows } = await query(
-        'delete from public.telegram_link_codes where code_hash = $1 and expires_at >= now() returning user_id',
+        'delete from public.telegram_group_codes where code_hash = $1 and expires_at >= now() returning 1',
         [sha256(code)],
       )
-      if (!rows[0]) return null
+      if (!rows[0]) return false
       await query(
-        `insert into public.telegram_admins (telegram_user_id, user_id) values ($1, $2)
-         on conflict (telegram_user_id) do update set user_id = excluded.user_id, linked_at = now(),
-           pending_order_id = null, pending_status = null, pending_until = null,
-           pending_chat_id = null, pending_prompt_id = null`,
-        [chatId, rows[0].user_id],
+        `insert into public.telegram_group (singleton, chat_id) values (true, $1)
+         on conflict (singleton) do update set chat_id = excluded.chat_id, connected_at = now()`,
+        [chatId],
       )
-      return (await query('select full_name from public.profiles where user_id = $1', [rows[0].user_id])).rows[0]
+      await query('delete from public.telegram_pending_decisions')
+      return true
     })
-    if (!profile) return reply(chatId, 'That connection link has expired or was already used. Ask for a new one.')
-    return reply(chatId, `Connected as ${profile.full_name}. Requests are posted in the PO Desk group, where you can accept or deny them.`)
-  }
-
-  const connectGroup = async (chatId: number, admin: Record<string, any> | undefined) => {
-    if (!admin) return reply(chatId, 'Only a connected PO Desk admin can do this. Open your connection link in a private chat with me first.')
-    await service((query) => query(
-      `insert into public.telegram_group (singleton, chat_id) values (true, $1)
-       on conflict (singleton) do update set chat_id = excluded.chat_id, connected_at = now()`,
-      [chatId],
-    ))
-    return reply(chatId, 'New purchase requests will be posted in this group. The admin for each department accepts or denies their own requests.')
+    if (!connected) return reply(chatId, 'That code has expired or was already used. Ask for a new one.')
+    return reply(chatId, 'New purchase requests will be posted in this group. Anyone here can accept or deny them, with a reason.')
   }
 
   const followOrder = async (chatId: number, rawCode: string) => {
@@ -281,38 +252,39 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
   }
 
   const stop = async (chatId: number) => {
-    await service(async (query) => {
-      await query('delete from public.telegram_order_followers where chat_id = $1', [chatId])
-      await query('delete from public.telegram_admins where telegram_user_id = $1', [chatId])
-    })
+    await service((query) => query('delete from public.telegram_order_followers where chat_id = $1', [chatId]))
     return reply(chatId, 'Done. You will not get any more messages from PO Desk.')
   }
 
-  const help = (chatId: number, place: 'admin' | 'requester' | 'group') => reply(chatId, {
-    admin: 'Requests are posted in the PO Desk group. Tap Accept or Deny on your department\'s requests, then reply with a reason.\n\n/pending shows open requests\n/cancel stops a decision\n/stop disconnects your Telegram',
-    requester: 'Send your request code, like 7K2M-B4WN, to track your request.\n\n/status shows requests you are tracking\n/stop turns off updates',
-    group: 'New purchase requests are posted here. The department\'s admin taps Accept or Deny, then replies with a reason.\n\n/pending shows open requests\n/cancel stops your decision',
-  }[place])
+  const help = (chatId: number, place: 'private' | 'group') => reply(chatId, place === 'private'
+    ? 'Send your request code, like 7K2M-B4WN, to track your request.\n\n/status shows requests you are tracking\n/stop turns off updates'
+    : 'New purchase requests are posted here. Tap Accept or Deny, then reply to my question with a reason.\n\n/pending shows open requests\n/cancel stops your decision')
 
-  const finishDecision = async (chatId: number, telegramUserId: number, admin: Record<string, any>, reason: string, messageId?: number) => {
-    const answer = (text: string) => reply(chatId, text, messageId ? { reply_parameters: { message_id: messageId } } : {})
+  const memberName = (user: Record<string, any>) =>
+    shorten([user.first_name, user.last_name].filter(Boolean).join(' ').trim() || (user.username ? `@${user.username}` : 'Telegram member'), 60)
+
+  const finishDecision = async (message: Record<string, any>, pending: Record<string, any>, reason: string) => {
+    const chatId = Number(message.chat.id)
+    const fromId = Number(message.from.id)
+    const answer = (text: string) => reply(chatId, text, { reply_parameters: { message_id: message.message_id } })
     if (reason.length < minReasonLength) return answer('Please reply to the question with a reason of at least a few words.')
     if (reason.length > maxReasonLength) return answer(`Please keep the reason under ${maxReasonLength} characters.`)
-    const status = admin.pending_status as string
-    const orderId = admin.pending_order_id as string
+    const status = String(pending.target_status)
+    const orderId = String(pending.purchase_order_id)
+    const name = memberName(message.from)
     try {
-      await asRole('authenticated', admin.user_id, (query) => query(
-        'select public.transition_purchase_order($1::uuid, $2::public.order_status, $3)',
-        [orderId, status, reason],
+      await service((query) => query(
+        'select public.transition_purchase_order_from_telegram($1::uuid, $2::public.order_status, $3, $4)',
+        [orderId, status, reason, `${name} (Telegram)`],
       ))
     } catch (error) {
       if ((error as { code?: string }).code !== 'P0001') throw error
-      await clearPending(telegramUserId)
+      await clearPending(fromId)
       return answer('That request was already decided, so nothing changed.')
     }
-    await clearPending(telegramUserId)
+    await clearPending(fromId)
     await notifyStatusChange(orderId)
-    return answer(`Saved: ${statusLabels[status]} by ${admin.full_name}.`)
+    return answer(`Saved: ${statusLabels[status]} by ${name}.`)
   }
 
   const parseCommand = (text: string) => {
@@ -327,30 +299,16 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
   const handlePrivateMessage = async (message: Record<string, any>) => {
     const chatId = Number(message.chat.id)
     const text = typeof message.text === 'string' ? message.text.trim() : ''
-    const admin = await findAdmin(chatId)
     const parsed = parseCommand(text)
-
     if (parsed) {
       const { command, argument } = parsed
-      if (command === '/start' && argument) {
-        return requestCodePattern.test(argument.toUpperCase()) ? followOrder(chatId, argument) : connectAdmin(chatId, argument)
-      }
+      if (command === '/start' && requestCodePattern.test(argument.toUpperCase())) return followOrder(chatId, argument)
       if (command === '/status') return showFollowed(chatId)
       if (command === '/stop') return stop(chatId)
-      if (command === '/pending' && admin) return showPending(chatId)
-      if (command === '/cancel' && admin) {
-        await clearPending(chatId)
-        return reply(chatId, 'Cancelled. Nothing changed.')
-      }
-      return help(chatId, admin ? 'admin' : 'requester')
-    }
-
-    if (admin?.pending_order_id && Number(admin.pending_chat_id) === chatId) {
-      if (!text) return reply(chatId, 'Please type your reason, or send /cancel.')
-      return finishDecision(chatId, chatId, admin, text)
+      return help(chatId, 'private')
     }
     if (requestCodePattern.test(text.toUpperCase())) return followOrder(chatId, text)
-    return help(chatId, admin ? 'admin' : 'requester')
+    return help(chatId, 'private')
   }
 
   // In the group, only commands and replies to the reason question are read.
@@ -365,13 +323,12 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
       return
     }
     const parsed = parseCommand(text)
-    if (parsed?.command === '/connect') return connectGroup(chatId, await findAdmin(fromId))
+    if (parsed?.command === '/connect') return connectGroup(chatId, parsed.argument)
     if (chatId !== groupId) return
-    const admin = await findAdmin(fromId)
 
     if (parsed) {
       if (parsed.command === '/pending') return showPending(chatId)
-      if (parsed.command === '/cancel' && admin) {
+      if (parsed.command === '/cancel') {
         await clearPending(fromId)
         return reply(chatId, 'Cancelled. Nothing changed.', { reply_parameters: { message_id: message.message_id } })
       }
@@ -379,9 +336,10 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
       return
     }
 
+    const pending = await findPending(fromId)
     const repliedTo = Number(message.reply_to_message?.message_id)
-    if (admin?.pending_order_id && Number(admin.pending_chat_id) === chatId && repliedTo === Number(admin.pending_prompt_id)) {
-      return finishDecision(chatId, fromId, admin, text, message.message_id)
+    if (pending && Number(pending.chat_id) === chatId && repliedTo === Number(pending.prompt_message_id)) {
+      return finishDecision(message, pending, text)
     }
   }
 
@@ -392,13 +350,8 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
     const match = decisionPattern.exec(String(callback.data ?? ''))
     if (!match) return answer('That button is no longer available.')
     const [, status, orderId] = match
-    const admin = await findAdmin(telegramUserId)
-    if (!admin) return answer('Only PO Desk admins can decide requests. Ask for a connection link to connect your Telegram.')
     const order = await service((query) => loadOrder(query, orderId!))
     if (!order) return answer('That request no longer exists.')
-    if (admin.role !== 'global_admin' && admin.department_id !== order.department_id) {
-      return answer(`Only the ${order.department} admin can decide this request.`)
-    }
     if (!openStatuses.includes(order.status)) {
       await send('editMessageText', {
         chat_id: chatId,
@@ -409,21 +362,22 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
       return answer('This request was already decided.')
     }
     await service((query) => query(
-      `update public.telegram_admins
-       set pending_order_id = $1, pending_status = $2::public.order_status,
-         pending_until = now() + make_interval(mins => $3), pending_chat_id = $4, pending_prompt_id = null
-       where telegram_user_id = $5`,
-      [orderId, status, reasonWindowMinutes, chatId, telegramUserId],
+      `insert into public.telegram_pending_decisions (telegram_user_id, purchase_order_id, target_status, chat_id, expires_at)
+       values ($1, $2, $3::public.order_status, $4, now() + make_interval(mins => $5))
+       on conflict (telegram_user_id) do update set purchase_order_id = excluded.purchase_order_id,
+         target_status = excluded.target_status, chat_id = excluded.chat_id,
+         prompt_message_id = null, expires_at = excluded.expires_at`,
+      [telegramUserId, orderId, status, chatId, reasonWindowMinutes],
     ))
     await send('answerCallbackQuery', { callback_query_id: callback.id, text: 'Please give a reason.' })
-    // Mention the admin by name, so the reply box opens for them only.
-    const name = shorten(String(callback.from.first_name || admin.full_name), 60)
+    // Mention the member by name, so the reply box opens for them only.
+    const name = memberName(callback.from)
     const prompt = await reply(chatId, `${name}, why are you ${status === 'approved' ? 'accepting' : 'denying'} ${order.reference}? Reply to this message with your reason. The requester will see it.\n\nSend /cancel to stop.`, {
       entities: [{ type: 'text_mention', offset: 0, length: name.length, user: { id: telegramUserId } }],
       reply_markup: { force_reply: true, selective: true, input_field_placeholder: 'Type your reason' },
     })
     await service((query) => query(
-      'update public.telegram_admins set pending_prompt_id = $1 where telegram_user_id = $2',
+      'update public.telegram_pending_decisions set prompt_message_id = $1 where telegram_user_id = $2',
       [prompt.message_id, telegramUserId],
     ))
   }
@@ -435,7 +389,8 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
     if (!chat || !['private', 'group', 'supergroup'].includes(chat.type)) return
     try {
       if (callback) {
-        if (chat.type !== 'private' && Number(chat.id) !== await groupChatId()) return
+        // Decisions are only taken from alerts in the connected group.
+        if (Number(chat.id) !== await groupChatId()) return
         await handleDecisionTap(callback)
       } else if (message) {
         await (chat.type === 'private' ? handlePrivateMessage(message) : handleGroupMessage(message))
@@ -448,5 +403,5 @@ export const createBot = (config: BotConfig, { asRole, claimLimit }: BotContext)
     }
   }
 
-  return { handleUpdate, issueAdminLink, notifyNewOrder, notifyStatusChange }
+  return { handleUpdate, notifyNewOrder, notifyStatusChange }
 }

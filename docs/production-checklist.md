@@ -32,7 +32,7 @@ npx neon@latest deploy --env .env.local
 
 ## Telegram bot
 
-The bot runs inside the same function and posts every new request in one Telegram group, with Accept and Deny buttons. Anyone in the group can see the requests, but only the admin for that request's department, or the super-admin, can decide one. After tapping a button, the admin must reply to the bot's question with a written reason, and the request does not change until they do. A reason lapses after 30 minutes. Requesters send their request code to the bot in a private chat to follow it, and they see the status and the reason, not the request details. The bot ignores request codes posted in the group.
+The bot runs inside the same function and posts every new request in one Telegram group, with Accept and Deny buttons. **Everyone in that group can accept or deny any department's request**, so add only people who should approve purchases, and don't share the group's invite link. After tapping a button, the member must reply to the bot's question with a written reason, and the request does not change until they do. A reason lapses after 30 minutes, and the first decision wins. The site's history shows the member's Telegram name, marked "(Telegram)". Requesters send their request code to the bot in a private chat to follow it, and they see the status and the reason, not the request details. The bot ignores request codes posted in the group.
 
 To set it up:
 
@@ -60,21 +60,15 @@ To set it up:
    npm run telegram:setup
    ```
 
-4. Create the group in Telegram and add the bot to it. Then connect your own Telegram (next step), and send `/connect` in the group. Requests are posted wherever `/connect` was last sent by a connected admin.
-
-5. Create a one-time connection link for each admin. They are written to the git-ignored `telegram-links.txt` and last 3 days. Send each admin their own link, then delete the file. Each admin opens their link, which starts a private chat with the bot, then joins the group. The link is what lets the bot know which department an admin can decide for.
+4. Create the group in Telegram and add the bot to it. Then create a one-time code and send the command it prints in the group. The code lasts one hour and works once.
 
    ```bash
-   npm run telegram:links
+   npm run telegram:connect
    ```
 
-   For one admin:
+   To move PO Desk to a different group, run it again and send the new code there.
 
-   ```bash
-   npm run telegram:links -- capa
-   ```
-
-A department login can connect several Telegram accounts. Changing or resetting its password disconnects all of them, so they need new links. If Telegram is unavailable when a request arrives, the request is still saved, and `/pending` in the group shows it.
+If Telegram is unavailable when a request arrives, the request is still saved, and `/pending` in the group shows it.
 
 ## Backups
 
@@ -84,7 +78,7 @@ The Neon Free plan keeps 6 hours of history. Export the data regularly and keep 
 
 The Free plan stops the database until the next billing period if it uses 100 compute hours or 5 GB of transfer in a month. Data is kept. Check usage in the Neon Console.
 
-Submissions are limited to 30 an hour per address, status checks to 60, and sign-ins to 30 per address and 15 per username, and Telegram code attempts to 20 per chat. Turnstile spam protection is optional: set `TURNSTILE_SECRET_KEY` on the function and `VITE_TURNSTILE_SITE_KEY` in `.env.production`, and add `https://challenges.cloudflare.com` to the Content Security Policy in `index.html`.
+Submissions are limited to 30 an hour per address, status checks to 60, and sign-ins to 30 per address and 15 per username, Telegram code attempts to 20 per chat, and group connection attempts to 10 per group. Turnstile spam protection is optional: set `TURNSTILE_SECRET_KEY` on the function and `VITE_TURNSTILE_SITE_KEY` in `.env.production`, and add `https://challenges.cloudflare.com` to the Content Security Policy in `index.html`.
 
 ## Local verification
 

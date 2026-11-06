@@ -13,7 +13,7 @@
     "db:migrate": "node --env-file=.env.local scripts/db-migrate.ts",
     "admins": "node --env-file=.env.local scripts/admins.ts",
     "telegram:setup": "node --env-file=.env.local scripts/telegram-setup.ts",
-    "telegram:links": "node --env-file=.env.local scripts/telegram-links.ts"
+    "telegram:connect": "node --env-file=.env.local scripts/telegram-connect.ts"
   },
   "dependencies": {
     "@neon/config": "^1.10.0",

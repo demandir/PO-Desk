@@ -9,12 +9,10 @@ import { hashPassword } from '../functions/password'
 const origin = 'https://shailp08.github.io'
 const secret = 'webhook-secret'
 const migrations = new URL('../db/migrations/', import.meta.url)
-const facilitiesChat = 1001
-const capaChat = 1002
-const adminChat = 1003
+const priya = 1001
+const raj = 1002
 const requesterChat = 2001
 const group = -100500
-const strangerChat = 9999
 
 let db: PGlite
 let api: (request: Request) => Promise<Response>
@@ -81,9 +79,12 @@ const sentIds = new Map<object, number>()
 const signIn = async (username: string) =>
   (await call('/login', { body: { username, password: `${username}-password` } })).body.token as string
 
-const connect = async (username: string, chatId: number) => {
-  const { body } = await call('/telegram/link', { token: await signIn(username), body: {} })
-  await say(chatId, `/start ${String(body.url).split('start=')[1]}`)
+const groupCode = async (code = `code-${randomUUID()}`) => {
+  await db.query(
+    `insert into public.telegram_group_codes (code_hash, expires_at) values (encode(sha256(convert_to($1, 'UTF8')), 'hex'), now() + interval '1 hour')`,
+    [code],
+  )
+  return code
 }
 
 let codeCounter = 0
@@ -118,14 +119,12 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL('../db/delmandir.sql', import.meta.url), 'utf8'))
   const rows = (await db.query<{ id: string; code: string }>('select id, code from public.departments')).rows
   departments = Object.fromEntries(rows.map(({ id, code }) => [code, id]))
-  for (const [username, code] of [['admin', null], ['facilities', 'FAC'], ['capa', 'CAPA']] as const) {
-    const hash = await hashPassword(`${username}-password`)
-    const user = await db.query<{ id: string }>('insert into auth.users (username, password_hash) values ($1, $2) returning id', [username, hash])
-    await db.query(
-      `insert into public.profiles (user_id, full_name, role, department_id) values ($1, $2, $3::public.admin_role, $4)`,
-      [user.rows[0]!.id, `${username} lead`, code ? 'department_admin' : 'global_admin', code ? departments[code] : null],
-    )
-  }
+  const hash = await hashPassword('capa-password')
+  const user = await db.query<{ id: string }>(`insert into auth.users (username, password_hash) values ('capa', $1) returning id`, [hash])
+  await db.query(
+    `insert into public.profiles (user_id, full_name, role, department_id) values ($1, 'capa lead', 'department_admin', $2)`,
+    [user.rows[0]!.id, departments.CAPA],
+  )
   const database: Database = {
     transaction: (run) => db.transaction((tx) => run((sql, params) => tx.query(sql, params))) as never,
   }
@@ -137,11 +136,7 @@ beforeAll(async () => {
     telegram: { token: 'bot-token', webhookSecret: secret, username: 'podesk_bot', fetchImpl: telegramFetch },
     runInBackground: (work) => { background.push(work) },
   })
-  sent = []
-  await connect('facilities', facilitiesChat)
-  await connect('capa', capaChat)
-  await connect('admin', adminChat)
-  await post(facilitiesChat, '/connect')
+  await post(priya, `/connect ${await groupCode()}`)
 }, 30000)
 
 beforeEach(() => { sent = []; failSending = false })
@@ -155,31 +150,34 @@ describe('Telegram bot', () => {
     expect(sent).toHaveLength(0)
   })
 
-  it('lets only a connected admin choose the group', async () => {
-    await post(strangerChat, '/connect', undefined, -777)
-    expect(messagesTo(-777).at(-1)!.payload.text).toContain('Only a connected PO Desk admin')
+  it('connects a group only with an unused code', async () => {
+    await post(raj, '/connect', undefined, -777)
+    await post(raj, '/connect guessed-code', undefined, -777)
+    expect(messagesTo(-777).at(-1)!.payload.text).toContain('expired')
+    const code = await groupCode()
+    await post(raj, `/connect ${code}`, undefined, -777)
+    expect(messagesTo(-777).at(-1)!.payload.text).toContain('will be posted in this group')
+    await post(raj, `/connect ${code}`, undefined, -888)
+    expect(messagesTo(-888).at(-1)!.payload.text).toContain('expired')
+    expect((await db.query('select chat_id from public.telegram_group')).rows).toEqual([{ chat_id: -777 }])
+    await post(priya, `/connect ${await groupCode()}`)
     expect((await db.query('select chat_id from public.telegram_group')).rows).toEqual([{ chat_id: group }])
   })
 
   it('ignores other groups', async () => {
-    await post(facilitiesChat, '/pending', undefined, -888)
+    const order = await submit(departments.FAC!)
+    sent = []
+    await post(priya, '/pending', undefined, -888)
+    await tap(priya, `decide:approved:${order.id}`, -888)
     expect(sent).toHaveLength(0)
+    expect(await statusOf(order.id)).toBe('submitted')
   })
 
-  it('uses a connection link once and refuses a bad one', async () => {
-    const { body } = await call('/telegram/link', { token: await signIn('capa'), body: {} })
-    const code = String(body.url).split('start=')[1]
-    expect(body.url).toContain('https://t.me/podesk_bot?start=')
-    await say(3001, `/start ${code}`)
-    expect(messagesTo(3001).at(-1)!.payload.text).toContain('Connected as capa lead')
-    await say(3002, `/start ${code}`)
-    expect(messagesTo(3002).at(-1)!.payload.text).toContain('expired')
-    expect((await db.query('select 1 from public.telegram_admins where telegram_user_id = 3002')).rows).toHaveLength(0)
-    await db.query('delete from public.telegram_admins where telegram_user_id = 3001')
-  })
-
-  it('needs a signed-in admin to create a connection link', async () => {
-    expect((await call('/telegram/link', { body: {} })).status).toBe(401)
+  it('ignores button taps outside the group', async () => {
+    const order = await submit(departments.FAC!)
+    sent = []
+    await tap(priya, `decide:approved:${order.id}`, priya)
+    expect(sent).toHaveLength(0)
   })
 
   it('posts every new request once, in the group only', async () => {
@@ -205,119 +203,111 @@ describe('Telegram bot', () => {
     const order = await submit(departments.CAPA!)
     failSending = false
     expect(await statusOf(order.id)).toBe('submitted')
-    await post(capaChat, '/pending')
+    await post(raj, '/pending')
     expect(messagesTo(group).some(({ payload }) => payload.text?.includes(order.reference))).toBe(true)
   })
 
-  it('asks the admin who tapped for a reason, by name', async () => {
+  it('asks the member who tapped for a reason, by name', async () => {
     const order = await submit(departments.FAC!)
     sent = []
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    await tap(priya, `decide:approved:${order.id}`)
     expect(await statusOf(order.id)).toBe('submitted')
     const { payload } = lastPrompt()
     expect(payload.chat_id).toBe(group)
-    expect(payload.text).toContain(`why are you accepting ${order.reference}?`)
-    expect(payload.entities[0]).toMatchObject({ type: 'text_mention', user: { id: facilitiesChat } })
+    expect(payload.text).toContain(`User${priya}, why are you accepting ${order.reference}?`)
+    expect(payload.entities[0]).toMatchObject({ type: 'text_mention', user: { id: priya } })
     expect(payload.reply_markup).toMatchObject({ force_reply: true, selective: true })
   })
 
-  it('requires a reason before accepting', async () => {
+  it('requires a reason before accepting, and records who decided', async () => {
     const order = await submit(departments.FAC!)
     sent = []
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    await tap(priya, `decide:approved:${order.id}`)
     const promptId = sentIds.get(lastPrompt())!
-    await post(facilitiesChat, 'ok', promptId)
+    await post(priya, 'ok', promptId)
     expect(await statusOf(order.id)).toBe('submitted')
-    await post(facilitiesChat, 'Within this month budget', promptId)
+    await post(priya, 'Within this month budget', promptId)
     expect(await statusOf(order.id)).toBe('approved')
-    const audit = await db.query<{ actor_name: string; note: string }>(
-      `select actor_name, note from public.audit_events where purchase_order_id = $1 and action = 'status_changed'`, [order.id],
+    const audit = await db.query<{ actor_name: string; actor_user_id: string | null; note: string }>(
+      `select actor_name, actor_user_id, note from public.audit_events where purchase_order_id = $1 and action = 'status_changed'`, [order.id],
     )
-    expect(audit.rows).toEqual([{ actor_name: 'facilities lead', note: 'Within this month budget' }])
-    expect(messagesTo(group).at(-1)!.payload.text).toBe('Saved: Approved by facilities lead.')
+    expect(audit.rows).toEqual([{ actor_name: `User${priya} (Telegram)`, actor_user_id: null, note: 'Within this month budget' }])
+    expect(messagesTo(group).at(-1)!.payload.text).toBe(`Saved: Approved by User${priya}.`)
+  })
+
+  it('lets any member decide any department', async () => {
+    const capaOrder = await submit(departments.CAPA!)
+    await decide(raj, 'approved', capaOrder.id, 'Approved for the CAPA event')
+    expect(await statusOf(capaOrder.id)).toBe('approved')
   })
 
   it('only counts a reply to the question as the reason', async () => {
     const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
-    await post(facilitiesChat, 'Chatting about something else in the group')
-    await post(facilitiesChat, 'Replying to some other message', 12345)
+    await tap(priya, `decide:approved:${order.id}`)
+    await post(priya, 'Chatting about something else in the group')
+    await post(priya, 'Replying to some other message', 12345)
     expect(await statusOf(order.id)).toBe('submitted')
-    await post(facilitiesChat, '/cancel')
+    await post(priya, '/cancel')
   })
 
-  it('does not take a reason from someone else in the group', async () => {
+  it('does not take a reason from a different member', async () => {
     const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
-    const promptId = sentIds.get(lastPrompt())!
-    await post(capaChat, 'Approving this for Facilities', promptId)
-    await post(strangerChat, 'Approving this for Facilities', promptId)
+    await tap(priya, `decide:approved:${order.id}`)
+    await post(raj, 'Approving this for Priya', sentIds.get(lastPrompt())!)
     expect(await statusOf(order.id)).toBe('submitted')
-    await post(facilitiesChat, '/cancel')
+    await post(priya, '/cancel')
   })
 
   it('denies with a reason and removes the buttons', async () => {
     const order = await submit(departments.FAC!)
-    await decide(facilitiesChat, 'rejected', order.id, 'Over the yearly budget')
+    await decide(priya, 'rejected', order.id, 'Over the yearly budget')
     expect(await statusOf(order.id)).toBe('rejected')
     const edits = sent.filter(({ method }) => method === 'editMessageText')
     expect(edits.map(({ payload }) => payload.chat_id)).toEqual([group])
     expect(edits[0]!.payload.text).toContain('Denied')
+    expect(edits[0]!.payload.text).toContain(`By: User${priya} (Telegram)`)
     expect(edits[0]!.payload.text).toContain('Reason: Over the yearly budget')
     expect(edits[0]!.payload.reply_markup.inline_keyboard).toEqual([])
   })
 
   it('leaves the request unchanged on /cancel', async () => {
     const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    await tap(priya, `decide:approved:${order.id}`)
     const promptId = sentIds.get(lastPrompt())!
-    await post(facilitiesChat, '/cancel')
-    await post(facilitiesChat, 'This text is not a reason now', promptId)
+    await post(priya, '/cancel')
+    await post(priya, 'This text is not a reason now', promptId)
     expect(await statusOf(order.id)).toBe('submitted')
   })
 
   it('lets a reason lapse', async () => {
     const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    await tap(priya, `decide:approved:${order.id}`)
     const promptId = sentIds.get(lastPrompt())!
-    await db.query(`update public.telegram_admins set pending_until = now() - interval '1 minute'`)
-    await post(facilitiesChat, 'This reason arrives too late', promptId)
+    await db.query(`update public.telegram_pending_decisions set expires_at = now() - interval '1 minute'`)
+    await post(priya, 'This reason arrives too late', promptId)
     expect(await statusOf(order.id)).toBe('submitted')
   })
 
-  it('stops an admin from deciding for another department', async () => {
-    const order = await submit(departments.CAPA!)
-    sent = []
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
-    expect(sent.find(({ method }) => method === 'answerCallbackQuery')!.payload.text).toBe('Only the CAPA admin can decide this request.')
-    expect(lastPrompt()).toBeUndefined()
-    expect(await statusOf(order.id)).toBe('submitted')
-  })
-
-  it('stops a group member without a PO Desk login from deciding', async () => {
+  it('keeps the first decision when two members answer at once', async () => {
     const order = await submit(departments.FAC!)
-    sent = []
-    await tap(strangerChat, `decide:approved:${order.id}`)
-    expect(sent.find(({ method }) => method === 'answerCallbackQuery')!.payload.text).toContain('Only PO Desk admins')
-    expect(await statusOf(order.id)).toBe('submitted')
-  })
-
-  it('lets the super-admin decide any department', async () => {
-    const order = await submit(departments.CAPA!)
-    await decide(adminChat, 'approved', order.id, 'Approved by the super-admin')
-    expect(await statusOf(order.id)).toBe('approved')
-  })
-
-  it('keeps the first decision when two admins answer at once', async () => {
-    const order = await submit(departments.FAC!)
-    await tap(facilitiesChat, `decide:approved:${order.id}`)
+    await tap(priya, `decide:approved:${order.id}`)
     const first = sentIds.get(lastPrompt())!
-    await tap(adminChat, `decide:rejected:${order.id}`)
+    await tap(raj, `decide:rejected:${order.id}`)
     const second = sentIds.get(lastPrompt())!
-    await post(facilitiesChat, 'Approved for the event', first)
-    await post(adminChat, 'Denied by the super-admin', second)
+    await post(priya, 'Approved for the event', first)
+    await post(raj, 'Denied, we have enough', second)
     expect(await statusOf(order.id)).toBe('approved')
     expect(messagesTo(group).at(-1)!.payload.text).toContain('already decided')
+  })
+
+  it('keeps the website rules for later steps', async () => {
+    const order = await submit(departments.CAPA!)
+    await decide(priya, 'approved', order.id, 'Approved for the event')
+    await call('/transition', { token: await signIn('capa'), body: { orderId: order.id, targetStatus: 'ordered', note: '' } })
+    expect(await statusOf(order.id)).toBe('ordered')
+    sent = []
+    await tap(raj, `decide:rejected:${order.id}`)
+    expect(sent.find(({ method }) => method === 'answerCallbackQuery')!.payload.text).toContain('already decided')
   })
 
   it('tracks a request by code in a private chat and sends the reason', async () => {
@@ -327,7 +317,7 @@ describe('Telegram bot', () => {
     expect(first).toContain(`Request ${order.reference}: New`)
     expect(first).not.toContain('Alex')
     expect(first).not.toContain('Vendor')
-    await decide(facilitiesChat, 'rejected', order.id, 'Please use the existing stock')
+    await decide(priya, 'rejected', order.id, 'Please use the existing stock')
     expect(messagesTo(requesterChat).at(-1)!.payload.text).toBe(`Request ${order.reference}: Denied\nReason: Please use the existing stock`)
     await say(requesterChat, '/status')
     expect(messagesTo(requesterChat).at(-1)!.payload.text).toContain(`${order.reference}: Denied`)
@@ -339,7 +329,7 @@ describe('Telegram bot', () => {
   it('never looks up a request code posted in the group', async () => {
     const order = await submit(departments.FAC!)
     sent = []
-    await post(strangerChat, order.requestCode)
+    await post(raj, order.requestCode)
     expect(sent).toHaveLength(0)
   })
 
@@ -354,7 +344,7 @@ describe('Telegram bot', () => {
   })
 
   it('follows the group when Telegram upgrades it', async () => {
-    await webhook({ message: { message_id: 1, chat: { id: group, type: 'group' }, from: { id: facilitiesChat }, migrate_to_chat_id: -100777 } })
+    await webhook({ message: { message_id: 1, chat: { id: group, type: 'group' }, from: { id: priya }, migrate_to_chat_id: -100777 } })
     expect((await db.query('select chat_id from public.telegram_group')).rows).toEqual([{ chat_id: -100777 }])
     await db.query('update public.telegram_group set chat_id = $1', [group])
   })
@@ -362,12 +352,6 @@ describe('Telegram bot', () => {
   it('limits guessed request codes', async () => {
     for (let attempt = 0; attempt < 21; attempt += 1) await say(4001, 'ZZZZ-ZZZZ')
     expect(messagesTo(4001).at(-1)!.payload.text).toContain('Too many tries')
-  })
-
-  it('disconnects Telegram when the password changes', async () => {
-    const token = await signIn('capa')
-    await call('/password', { token, body: { currentPassword: 'capa-password', newPassword: 'a-long-new-password' } })
-    expect((await db.query('select 1 from public.telegram_admins where telegram_user_id = $1', [capaChat])).rows).toHaveLength(0)
   })
 
   it('stays off without a bot configured', async () => {

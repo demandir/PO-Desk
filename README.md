@@ -41,7 +41,7 @@ See [the operations guide](docs/production-checklist.md) and [the architecture a
 - Persistent light and dark modes using the company white, pink, blue, and gold palette.
 - Department-scoped and global administrator dashboards.
 - Status workflow, review notes, and append-only audit history.
-- Telegram bot for live admin alerts, accept or deny with a required reason, and requester tracking by code.
+- Telegram group bot: new requests are posted in one group, any member can accept or deny with a required reason, and requesters track by code.
 - Global status/spend statistics and department management.
 - Database row-level security, server-generated references/totals, anonymous rate limits, and optional Turnstile protection.
 - GitHub Pages deployment workflow and browser-only demo mode.
